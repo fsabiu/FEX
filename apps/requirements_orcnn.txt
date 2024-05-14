@@ -1,3 +1,0 @@
-flask_api
-flask_cors
-Werkzeug==2.3.0
