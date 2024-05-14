@@ -1,0 +1,24 @@
+2024/05/13 12:35:41:<class 'dict'>
+2024/05/13 12:35:41:<class 'str'>
+2024/05/13 12:35:41:<class 'list'>
+2024/05/13 12:36:57:<class 'dict'>
+2024/05/13 12:36:57:<class 'str'>
+2024/05/13 12:36:57:<class 'list'>
+2024/05/13 12:38:31:<class 'dict'>
+2024/05/13 12:38:31:<class 'str'>
+2024/05/13 12:38:31:<class 'list'>
+2024/05/13 12:40:27:<class 'dict'>
+2024/05/13 12:40:27:<class 'str'>
+2024/05/13 12:40:27:<class 'list'>
+2024/05/13 13:17:26:orcnn - Inference time:0.7245628833770752 seconds
+2024/05/13 13:26:34:orcnn - Image shape: (404, 404, 4)
+2024/05/13 13:26:51:orcnn - Image shape: (2560, 2560, 3)
+2024/05/13 13:26:52:orcnn - Inference time: 0.7190513610839844 seconds
+2024/05/13 13:28:57:orcnn - Image shape: (404, 404, 3)
+2024/05/13 13:28:58:orcnn - Inference time: 0.6472835540771484 seconds
+2024/05/13 13:29:51:orcnn - Image shape: (404, 404, 3)
+2024/05/13 13:29:51:orcnn - Inference time: 0.08008408546447754 seconds
+2024/05/13 13:37:51:orcnn - Image shape: (404, 404, 3)
+2024/05/13 13:37:51:orcnn - Inference time: 0.07274770736694336 seconds
+2024/05/13 13:39:28:orcnn - Image shape: (480, 640, 3)
+2024/05/13 13:39:28:orcnn - Inference time: 0.07469439506530762 seconds

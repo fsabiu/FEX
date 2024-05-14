@@ -1,0 +1,8 @@
+#conda create --name YOLO-W  python=3.10 -y
+flask_api
+flask_cors
+inference-gpu[yolo-world]==0.9.13
+ultralytics
+supervision
+opencv-python
+Werkzeug==2.3.0
