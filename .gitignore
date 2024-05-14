@@ -2,6 +2,8 @@
 /apps/logs/
 /apps/models/
 
+
 /demo/yolov8l-world.pt
 /demo/yolov8m-world.pt
 /demo/output_video.mp4
+/demo/media/
