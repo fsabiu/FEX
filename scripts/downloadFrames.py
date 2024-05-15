@@ -1,6 +1,7 @@
 import cv2
 import os
 from datetime import datetime
+import sys
 
 def open_rtsp_stream(stream_url):
     cap = cv2.VideoCapture(stream_url)
@@ -14,7 +15,7 @@ def release_rtsp_stream(cap):
         cap.release()
         cv2.destroyAllWindows()
 
-def save_frames_from_stream(stream_url, output_folder):
+def save_frames_from_stream(stream_url, output_folder,n):
     cap = open_rtsp_stream(stream_url)
     if cap is None:
         return
@@ -27,24 +28,42 @@ def save_frames_from_stream(stream_url, output_folder):
     if not os.path.exists(output_subfolder):
         os.makedirs(output_subfolder)
     
-    frame_count = 0
+    # initialize variables for FPS calculation
+    num_frames = 0
+    interval = 1  # interval for FPS calculation in seconds
+    
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        cv2.imwrite(f"{output_subfolder}/frame_{frame_count}.jpg", frame)
-        frame_count += 1
+        num_frames += 1
+
+        # check if it's time to save the image
+        if num_frames % n == 0:
+            # write image to file
+            cv2.imwrite(os.path.join(output_subfolder, 'frame_{}.jpg'.format(num_frames)), frame)
+            print("Saved frame:", num_frames)
 
     release_rtsp_stream(cap)
     print(f"{frame_count} frames saved to {output_folder}")
 
 # Example usage:
 def main():
-    stream_url = 'rtsp://rtspstream:e13d6ca8e1ce8e3c913d7555c48342e4@zephyr.rtsp.stream/movie'
-    frames_output_folder = 'frames'
+   
+    # stream_url = 'rtsp://rtspstream:e13d6ca8e1ce8e3c913d7555c48342e4@zephyr.rtsp.stream/movie'
+    # frames_output_folder = 'frames'
 
-    # save_video_from_stream(stream_url, video_output_location)
-    save_frames_from_stream(stream_url, frames_output_folder)
+    stream_url = sys.argv[1]
+    frames_output_folder = sys.argv[2]
+    n_str = sys.argv[3]
+
+    if not n_str.isdigit():
+        print("Error: Delay parameter must be an integer.")
+        return
+
+    n = int(n_str)
+    
+    save_frames_from_stream(stream_url, frames_output_folder, n)
 
 if __name__ == "__main__":
     main()
