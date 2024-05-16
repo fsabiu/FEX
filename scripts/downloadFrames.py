@@ -45,7 +45,7 @@ def save_frames_from_stream(stream_url, output_folder,n):
             print("Saved frame:", num_frames)
 
     release_rtsp_stream(cap)
-    print(f"{frame_count} frames saved to {output_folder}")
+    print(f"{num_frames} frames saved to {output_folder}")
 
 # Example usage:
 def main():
