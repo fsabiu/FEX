@@ -8,7 +8,7 @@ from PIL import Image
 
 ia.seed(1)
 
-def generateAugImg(im, output="PIL"):
+def generateAugImg(im, n, output="PIL"):
     """
     Input:
     - im: PIL image or numpy image
@@ -24,7 +24,7 @@ def generateAugImg(im, output="PIL"):
     elif isinstance(im, np.ndarray):
         img_array = im
     
-    images = np.array([img_array]*10)
+    images = np.array([img_array]*n)
 
     sometimes = lambda aug: iaa.Sometimes(0.7, aug)
 
@@ -93,7 +93,7 @@ def generateAugImg(im, output="PIL"):
 
     return result
 
-def main(parent_dir, img_dir, labels_dir):
+def main(parent_dir, n, img_dir, labels_dir):
     # Check if img_dir and labels_dir exist inside parent_dir
     if not os.path.exists(os.path.join(parent_dir, img_dir)) or not os.path.exists(os.path.join(parent_dir, labels_dir)):
         print("Error: Image directory or labels directory does not exist.")
@@ -107,7 +107,7 @@ def main(parent_dir, img_dir, labels_dir):
             image = Image.open(img_path)
 
             # Generate augmented images
-            augmented_images = generateAugImg(image, "PIL")
+            augmented_images = generateAugImg(image, n, "PIL")
 
             # Iterate through each augmented image
             for i, aug_img in enumerate(augmented_images):
@@ -124,12 +124,13 @@ def main(parent_dir, img_dir, labels_dir):
 
 
 if __name__ == "__main__":
-    # Usage: python script.py parent_dir img_dir labels_dir
-    if len(sys.argv) != 4:
-        print("Usage: python script.py parent_dir img_dir labels_dir")
+    # Usage: python script.py n parent_dir img_dir labels_dir
+    if len(sys.argv) != 5:
+        print("Usage: python script.py n_augment parent_dir img_dir labels_dir")
         sys.exit(1)
     
-    parent_dir = sys.argv[1]
-    img_dir = sys.argv[2]
-    labels_dir = sys.argv[3]
-    main(parent_dir, img_dir, labels_dir)
+    n_agument = int(sys.argv[1])
+    parent_dir = sys.argv[2]
+    img_dir = sys.argv[3]
+    labels_dir = sys.argv[4]
+    main(parent_dir, n_agument, img_dir, labels_dir)
