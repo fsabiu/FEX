@@ -1,4 +1,5 @@
 # YOLO folders structure train, val, test with images, labels
+import json
 from PIL import Image
 import shutil
 import os
@@ -22,13 +23,29 @@ def check_dataset(dataset_path):
         'test/labels'
     ]
 
+    # Checking folders
     for folder in required_folders:
         folder_path = os.path.join(dataset_path, folder)
         if not os.path.exists(folder_path):
             print(f"Error: Folder '{folder}' does not exist.")
             return False
 
-    return True
+    # Checking class dictionary
+    # Check if classes.json exists
+    classes_json_path = os.path.join(dataset_path, 'classes.json')
+    if not os.path.exists(classes_json_path):
+        print("Error: 'classes.json' file does not exist.")
+        return False, {}
+
+    # Load the content of classes.json into a dictionary
+    try:
+        with open(classes_json_path, 'r') as f:
+            classes_dict = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: Failed to decode 'classes.json': {e}")
+        return False, {}
+
+    return True, classes_dict
 
 def create_sibling_folder(dataset_path):
     # Extract YOLO dataset name
@@ -58,7 +75,7 @@ def create_sibling_folder(dataset_path):
 
     return sibling_folder_path
 
-def copy_images_and_generate_labels(dataset_path, sibling_folder_path):
+def copy_images_and_generate_labels(dataset_path, sibling_folder_path, class_dict):
     # Define folders to copy images from and to
     folders_to_copy = ['train', 'val', 'test']
 
@@ -78,17 +95,19 @@ def copy_images_and_generate_labels(dataset_path, sibling_folder_path):
             source_image_path = os.path.join(image_source_folder, image_filename)
             destination_image_path = os.path.join(image_destination_folder, image_filename)
             shutil.copy(source_image_path, destination_image_path)
-            print(f"Image file nr. '{i+1}' copied from '{image_source_folder}' to '{image_destination_folder}'.")
+            if i % 50 == 0:
+                print(f"Image file nr. '{i+1}' copied from '{image_source_folder}' to '{image_destination_folder}'.")
 
             # Look for the label with the same name (except the extension) in the source folder
             label_filename = os.path.splitext(image_filename)[0] + '.txt'
             source_label_path = os.path.join(label_source_folder, label_filename)
             if os.path.exists(source_label_path):
                 destination_label_path = os.path.join(label_destination_folder, label_filename)
-                write_modified_label(source_label_path, destination_label_path, img_width, img_height)
-                print(f"Label file nr. '{i+1}' converted for '{label_destination_folder}'.")
+                write_modified_label(source_label_path, destination_label_path, img_width, img_height, class_dict)
+                if i % 50 == 0:
+                    print(f"Label file nr. '{i+1}' converted for '{label_destination_folder}'.")
 
-def write_modified_label(source_label_path, destination_label_path, img_width, img_height):
+def write_modified_label(source_label_path, destination_label_path, img_width, img_height, class_dict):
     # Read the original label content
     with open(source_label_path, 'r') as f:
         original_label_content = f.read()
@@ -98,7 +117,7 @@ def write_modified_label(source_label_path, destination_label_path, img_width, i
         for line in original_label_content.splitlines():
             if line:
                 values = line.split()
-                class_id = int(values[0])
+                class_id = class_dict[values[0]]
                 x_center = float(values[1])
                 y_center = float(values[2])
                 width = float(values[3])
@@ -129,8 +148,9 @@ if __name__ == "__main__":
         dataset_path = dataset_path[:-1]
 
     # Checking folders structure
-    if check_dataset(dataset_path):
+    check, class_dict = check_dataset(dataset_path)
+    if check:
         print("Dataset validation successful.")
         # Creating DOTA_folder
         sibling_folder_path = create_sibling_folder(dataset_path)
-        copy_images_and_generate_labels(dataset_path, sibling_folder_path)
+        copy_images_and_generate_labels(dataset_path, sibling_folder_path, class_dict)
