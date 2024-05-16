@@ -27,7 +27,7 @@ def json_to_yolo_yaml(dataset_path):
 def train_yolo():
     model = YOLO('yolov8x.pt')
     print(model.info())
-    results = model.train(data='train.yaml', epochs=100, imgsz=640)
+    results = model.train(data='train.yaml', epochs=100, imgsz=640, device=[0, 1])
     return
 
 if __name__ == "__main__":
