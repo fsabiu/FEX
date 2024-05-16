@@ -75,6 +75,13 @@ def create_sibling_folder(dataset_path):
 
     return sibling_folder_path
 
+def change_extension_to_png(image_path):
+    # Split the path into root and extension
+    root, ext = os.path.splitext(image_path)
+    # Append '.png' to the root to form the new path
+    new_path = root + '.png'
+    return new_path
+
 def copy_images_and_generate_labels(dataset_path, sibling_folder_path, class_dict):
     # Define folders to copy images from and to
     folders_to_copy = ['train', 'val', 'test']
@@ -91,10 +98,12 @@ def copy_images_and_generate_labels(dataset_path, sibling_folder_path, class_dic
             with Image.open(os.path.join(image_source_folder, image_filename)) as img:
                 img_width, img_height = img.size
             
-            # Copy the image to the destination folder
-            source_image_path = os.path.join(image_source_folder, image_filename)
-            destination_image_path = os.path.join(image_destination_folder, image_filename)
-            shutil.copy(source_image_path, destination_image_path)
+                # Copy the image to the destination folder
+                #source_image_path = os.path.join(image_source_folder, image_filename)
+                destination_image_path = os.path.join(image_destination_folder, image_filename)
+                destination_image_png_path = change_extension_to_png(destination_image_path)
+                img.save(destination_image_png_path, 'PNG')
+            #shutil.copy(source_image_path, destination_image_path)
             if i % 50 == 0:
                 print(f"Image file nr. '{i+1}' copied from '{image_source_folder}' to '{image_destination_folder}'.")
 
@@ -137,6 +146,28 @@ def write_modified_label(source_label_path, destination_label_path, img_width, i
                 dota_line = f"{x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4} {class_id} 0\n"
                 f.write(dota_line)
 
+def remove_points(folder_path):
+    # Recursively traverse the directory
+    for root, dirs, files in os.walk(folder_path):
+        for filename in files:
+            # Find the position of the last dot
+            last_dot_position = filename.rfind('.')
+            
+            if last_dot_position != -1:
+                # Split the filename into name and extension parts
+                name = filename[:last_dot_position]
+                extension = filename[last_dot_position:]
+                
+                # Remove all dots from the name part
+                new_name = name.replace('.', '') + extension
+                
+                # Construct full old and new paths
+                old_path = os.path.join(root, filename)
+                new_path = os.path.join(root, new_name)
+                
+                # Rename the file
+                os.rename(old_path, new_path)
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python YOLOtoDOTA.py dataset_path")
@@ -154,3 +185,4 @@ if __name__ == "__main__":
         # Creating DOTA_folder
         sibling_folder_path = create_sibling_folder(dataset_path)
         copy_images_and_generate_labels(dataset_path, sibling_folder_path, class_dict)
+        remove_points(sibling_folder_path)
