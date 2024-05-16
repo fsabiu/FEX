@@ -96,7 +96,7 @@ def getObjects(modelname, model, result):
                     "x1": float(x1),
                     "y1": float(y1),
                     "x2": float(x2),
-                    "y1": float(y2),
+                    "y2": float(y2),
                     "x3": float(x3),
                     "y3": float(y3),
                     "x4": float(x4),
