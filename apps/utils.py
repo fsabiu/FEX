@@ -22,10 +22,13 @@ def detect_orcnn(model_dict, b64_image, confidence):
     name = f"orcnn_img_{timestamp}.{frmt}"
     path = f"images/{name}"
 
-
-    with open(path, "wb") as fh:
-        fh.write(base64.b64decode(b64_image))
-
+    # if b64_image is an image write it
+    if not b64_image.startswith("/shared"):
+        with open(path, "wb") as fh:
+            fh.write(base64.b64decode(b64_image))
+    else: # if b64_image is a path read it
+        path = b64_image
+        
     im = Image.open(path)
     img_array = np.asarray(im)
 
