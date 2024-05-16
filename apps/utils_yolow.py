@@ -69,9 +69,6 @@ def detect_yolow(model, b64_image, confidence):
     detections=detections
     )
 
-    print("detections")
-    print(detections)
-
     #objects = getObjects("yolow", model, result)
 
     resDicts = {}
