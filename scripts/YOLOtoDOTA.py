@@ -69,7 +69,7 @@ def copy_images_and_generate_labels(dataset_path, sibling_folder_path):
         label_destination_folder = os.path.join(sibling_folder_path, folder, 'labels')
         image_destination_folder = os.path.join(sibling_folder_path, folder, 'images')
 
-        for image_filename in os.listdir(image_source_folder):
+        for i, image_filename in enumerate(os.listdir(image_source_folder)):
             # Open the image and get its size
             with Image.open(os.path.join(image_source_folder, image_filename)) as img:
                 img_width, img_height = img.size
@@ -78,7 +78,7 @@ def copy_images_and_generate_labels(dataset_path, sibling_folder_path):
             source_image_path = os.path.join(image_source_folder, image_filename)
             destination_image_path = os.path.join(image_destination_folder, image_filename)
             shutil.copy(source_image_path, destination_image_path)
-            print(f"Image file '{image_filename}' copied from '{image_source_folder}' to '{image_destination_folder}'.")
+            print(f"Image file nr. '{i+1}' copied from '{image_source_folder}' to '{image_destination_folder}'.")
 
             # Look for the label with the same name (except the extension) in the source folder
             label_filename = os.path.splitext(image_filename)[0] + '.txt'
@@ -86,7 +86,7 @@ def copy_images_and_generate_labels(dataset_path, sibling_folder_path):
             if os.path.exists(source_label_path):
                 destination_label_path = os.path.join(label_destination_folder, label_filename)
                 write_modified_label(source_label_path, destination_label_path, img_width, img_height)
-                print(f"Label file '{label_filename}' converted for '{label_destination_folder}'.")
+                print(f"Label file nr. '{i+1}' converted for '{label_destination_folder}'.")
 
 def write_modified_label(source_label_path, destination_label_path, img_width, img_height):
     # Read the original label content
@@ -120,7 +120,7 @@ def write_modified_label(source_label_path, destination_label_path, img_width, i
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python script.py dataset_path")
+        print("Usage: python YOLOtoDOTA.py dataset_path")
         sys.exit(1)
 
     dataset_path = sys.argv[1]
