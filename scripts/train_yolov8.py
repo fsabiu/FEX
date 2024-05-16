@@ -12,7 +12,7 @@ def json_to_yolo_yaml(dataset_path):
     # Prepare the content for the YAML file
     yolo_yaml_content = {
         'path': dataset_path,
-        'train': os.path.join(dataset_path, 'train/image'),
+        'train': os.path.join(dataset_path, 'train/images'),
         'val': os.path.join(dataset_path, 'val/images'),
         'names': {int(k): v for k, v in data.items()}
     }
@@ -27,7 +27,7 @@ def json_to_yolo_yaml(dataset_path):
 def train_yolo():
     model = YOLO('yolov8x.pt')
     print(model.info())
-    results = model.train(data='coco8.yaml', epochs=100, imgsz=640)
+    results = model.train(data='train.yaml', epochs=100, imgsz=640)
     return
 
 if __name__ == "__main__":
