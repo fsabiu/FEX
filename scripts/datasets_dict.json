@@ -1,0 +1,72 @@
+{
+    "tanks_militaryTrucks" : {
+        "dir_name": "tanks_militaryTrucks",
+        "train_name": "train",
+        "train_img": "images",
+        "train_labels": "labels",
+        "val_name": "val",
+        "val_img": "images",
+        "val_labels": "labels",
+        "test_name": "test",
+        "test_img": "images",
+        "test_labels": "labels",
+        "id_classes": {"civilian_vehicle": {
+                    "0":-1
+                },
+                "gun":{
+                    "1":-1
+                },
+                "military_tank":{
+                    "2":0
+                },
+                "military_truck":{
+                    "3":1
+                },
+                "military_vehicle":{
+                    "4":-1
+                },
+                "person":{
+                    "5":-1
+                },
+                "pistol":{
+                    "6":-1
+                },
+                "soldier":{
+                    "7":-1
+                }
+        }
+    },
+    "militaryTrucks" : {
+        "dir_name": "militaryTrucks",
+        "train_name": "train",
+        "train_img": "images",
+        "train_labels": "labels",
+        "val_name": "val",
+        "val_img": "images",
+        "val_labels": "labels",
+        "test_name": "test",
+        "test_img": "images",
+        "test_labels": "labels",
+        "id_classes": {"Truck": {
+                    "0":1
+                }
+            }
+        },
+    "tankAirView" : {
+        "dir_name": "tankAirView",
+        "train_name": "train",
+        "train_img": "images",
+        "train_labels": "labels",
+        "val_name": "val",
+        "val_img": "images",
+        "val_labels": "labels",
+        "test_name": "test",
+        "test_img": "images",
+        "test_labels": "labels",
+        "id_classes": {"tank": {
+                    "0":0
+                }
+            }
+        }
+
+}
