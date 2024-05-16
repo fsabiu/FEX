@@ -5,10 +5,12 @@ import sys
 import time
 
 def open_rtsp_stream(stream_url):
-    cap = cv2.VideoCapture(stream_url)
-    if not cap.isOpened():
-        print("Error: Could not open the video stream.")
-        return None
+    cap = None
+    while cap is None or not cap.isOpened():
+        cap = cv2.VideoCapture(stream_url)
+        if not cap.isOpened():
+            print("Waiting for stream ...")
+            time.sleep(1)
     return cap
 
 def release_rtsp_stream(cap):
@@ -18,8 +20,7 @@ def release_rtsp_stream(cap):
 
 def save_video_from_stream(stream_url, output_folder, delay):
 
-
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # MP4V codec
     # Create folder if not exists
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -27,11 +28,7 @@ def save_video_from_stream(stream_url, output_folder, delay):
     while True:
         
         cap = open_rtsp_stream(stream_url)
-        if cap is None:
-            print(f"Streaming not active! Retrying in 1 seconds...")
-            time.sleep(1)
-            continue
-
+        print("Streaming received...")
         # Set video resolution
         cap.set(3, 1280)
         cap.set(4, 720)
@@ -47,14 +44,19 @@ def save_video_from_stream(stream_url, output_folder, delay):
 
         start_time = datetime.now()
         out = cv2.VideoWriter(output_filename, fourcc, fps, (width, height))
-
+        stream_abrupted = False
         while (datetime.now() - start_time).total_seconds() < delay:
             
             ret, frame = cap.read()
             if not ret:
+                stream_abrupted = True
                 break
             if frame is not None:
+                # try:
                 out.write(frame)
+                # except Exception as e:
+                #     print(f"Error writing frame: {e}")
+                #     break
         out.release()
         print(f"Video saved to {output_filename}")
 
