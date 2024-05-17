@@ -54,19 +54,11 @@ def detect_yolow(model, b64_image, confidence):
     if img_array.shape[2] == 4:
         img_array = img_array[:, :, :3]  # Drop the last channel (alpha channel)
 
-    #writeLog("logs_yolow.txt", "yolow - Image shape: " + str(np.shape(img_array)))
     # Detection
     results = model.predict(img_array)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
-    #writeLog("logs_yolow.txt", "yolow - Inference time: " + str(elapsed_time) + " seconds")
-    #writeLog("logs_yolow.txt", type(results[0]))
-    
-    # if result[0]["obb"] is not None:
-
-    #     writeLog("logs_yolow.txt", "results[0]")
-    #     writeLog("logs_yolow.txt", results[0])
 
     detections = sv.Detections.from_ultralytics(results[0])
     annotated_frame = bounding_box_annotator.annotate(
@@ -91,28 +83,12 @@ def detect_yolow(model, b64_image, confidence):
         obj["confidence"] = float(confidences[i])
         obj["tagName"] = class_names[i]
         objects.append(obj)
-    
-    # 2024/05/17 10:07:55:Detections(xyxy=array([[     618.06,      494.75,      858.95,      555.18],
-    #    [     284.33,      618.58,         319,       649.8],
-    #    [     1051.8,      584.13,      1093.1,       614.6],
-    #    [     969.94,      673.32,      1011.7,      706.84],
-    #    [     324.88,      676.43,      354.35,      718.55],
-    #    [     363.67,      653.16,      390.53,      696.26]], dtype=float32), mask=None, confidence=array([    0.59864,     0.43561,     0.38763,     0.36425,       0.283,     0.25649], dtype=float32), class_id=array([1, 0, 0, 0, 0, 0]), tracker_id=None, data={'class_name': array(['train', 'car', 'car', 'car', 'car', 'car'], dtype='<U5')})
-    
-    #annotated_frame = label_annotator.annotate(
-    #    scene=annotated_frame, detections = detections
-    #)
-    # polygon_annotator = sv.PolygonAnnotator()
-    # annotated_frame = polygon_annotator.annotate(
-    # scene=annotated_frame,
-    # detections=detections
-    # )
 
     resDicts = {}
     resDicts["objects"] = objects
     resDicts["all_classes"] = classes
     resDicts["time"] = elapsed_time
-    writeLog("logs_yolow.txt", resDicts)
+
     return resDicts
 
 

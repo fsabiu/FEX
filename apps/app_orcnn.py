@@ -30,15 +30,15 @@ def detect_orcnn():
 
     result["status"] = "success"
     if "filter" in body:
-        result = filter_result(result, filter)
+        result = filter_results(result, body["filter"])
 
     return jsonify(result)
 
 
-def filter_results(result, filter):
+def filter_results(result, filter_cond):
     # Filter the objects based on the tag name
-    filtered_objects = [obj for obj in results['objects'] if obj['tagName'] in filter['classes'] and obj['confidence'] >= filter['confidence']]
-    results['objects'] = filtered_objects
+    filtered_objects = [obj for obj in result['objects'] if obj['tagName'] in filter_cond['classes'] and obj['confidence'] >= filter_cond['confidence']]
+    result['objects'] = filtered_objects
     return result
 
 
