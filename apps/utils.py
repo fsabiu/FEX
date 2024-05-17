@@ -47,6 +47,7 @@ def detect_orcnn(model_dict, b64_image, confidence):
     objects = getObjects("orcnn", model, result)
 
     resDicts = {}
+    resDicts["time"] = elapsed_time
     resDicts["objects"] = objects
     resDicts["all_classes"] = model.CLASSES
 
@@ -96,7 +97,7 @@ def getObjects(modelname, model, result):
                     "x1": float(x1),
                     "y1": float(y1),
                     "x2": float(x2),
-                    "y1": float(y2),
+                    "y2": float(y2),
                     "x3": float(x3),
                     "y3": float(y3),
                     "x4": float(x4),
@@ -134,7 +135,7 @@ def load_orcnn():
     config = mmcv.Config.fromfile(config_file)
     # Set pretrained to be None since we do not need pretrained model here
     config.model.pretrained = None
-
+    
     # Initialize the detector
     model = build_detector(config.model)
 
