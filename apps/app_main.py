@@ -71,18 +71,8 @@ def detect_yolow(img_path, filter):
 def annotate_img(pil_image):
     return pil_image
 
-def update_annotations(img_path, num_frames):
+def update_annotations(img_path, num_frames, result_filter):
     # Collect the results
-    result_filter = {
-        "yolow": {
-            "classes": ["car", "train"],
-            "confidence": 0.001
-        },
-        "orcnn":{
-            "classes": ["plane", "baseball-diamond", "bridge", "ground-track-field", "small-vehicle", "large-vehicle", "storage-tank", "roundabout", "harbor", "helicopter"],
-            "confidence": 0.6
-        }
-    }
 
     # Run detection functions in parallel
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -111,9 +101,19 @@ def process_stream(stream_url, output_folder):
     previous_annotations = None
     
     cap = open_rtsp_stream(stream_url)
-
     num_frames = 0
     
+    result_filter = {
+        "yolow": {
+            "classes": ["car", "train"],
+            "confidence": 0.001
+        },
+        "orcnn":{
+            "classes": ["plane", "baseball-diamond", "bridge", "ground-track-field", "small-vehicle", "large-vehicle", "storage-tank", "roundabout", "harbor", "helicopter"],
+            "confidence": 0.6
+        }
+    }
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -130,7 +130,7 @@ def process_stream(stream_url, output_folder):
             
             # Saving image each n frames
             if previous_annotations != last_annotations:
-                
+                print(last_annotations)
                 # update last annotation
                 previous_annotations = last_annotations
                 
@@ -139,17 +139,56 @@ def process_stream(stream_url, output_folder):
 
                 # Call detection asynchronously
                 print(f"Frame {num_frames}: running annotation thread")
-                detection_thread = threading.Thread(target=update_annotations, args=(img_path, num_frames))
+                detection_thread = threading.Thread(target=update_annotations, args=(img_path, num_frames, result_filter))
                 detection_thread.start()
             else:
                 print("Sending frame " + str(num_frames))
 
             
+            # Initialize an empty list to store all objects
+            ensemble_annotations = []
+
+            # Iterate over each dictionary in the list
+            for model in last_annotations.keys():
+                # Extract the "objects" list from the current dictionary
+                objects_list = last_annotations[model]["objects"]
+                # Extend the merged_objects list with the objects_list
+                ensemble_annotations.extend(objects_list)
+
             pil_image = Image.fromarray(frame)
-            pil_image = annotate_img(pil_image)
+            pil_image = annotate_img(pil_image, ensemble_annotations)
             pil_image.save(img_path_det)
 
     release_rtsp_stream(cap)
+
+from PIL import Image, ImageDraw
+
+def annotate_img(image, annotations):
+    """
+    Annotate the image with bounding boxes.
+
+    Args:
+    - image: PIL image object
+    - annotations: List of dictionaries containing annotation bounds
+
+    Returns:
+    - Annotated PIL image object
+    """
+    draw = ImageDraw.Draw(image)
+    for annotation in annotations:
+        bounds = annotation["bounds"]
+        x1 = bounds["x1"]
+        y1 = bounds["y1"]
+        x2 = bounds["x2"]
+        y2 = bounds["y2"]
+        x3 = bounds["x3"]
+        y3 = bounds["y3"]
+        x4 = bounds["x4"]
+        y4 = bounds["y4"]
+        draw.polygon([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], outline="red")
+        
+    return image
+
 
 # Example usage:
 def main():
@@ -160,12 +199,13 @@ def main():
     # frames_output_folder = 'frames'
 
     stream_url = sys.argv[1]
-    frames_output_folder = sys.argv[2]
+    output_folder = sys.argv[2]
 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    # stream processing
-    process_stream(stream_url, frames_output_folder)
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_folder), exist_ok=True)
+    process_stream(stream_url, output_folder)
 
 if __name__ == "__main__":
     main()
