@@ -1,0 +1,7 @@
+#conda create --name YOLO-W  python=3.10 -y
+flask_api
+flask_cors
+ultralytics
+supervision
+opencv-python
+Werkzeug==2.3.0
