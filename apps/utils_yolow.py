@@ -54,13 +54,13 @@ def detect_yolow(model, b64_image, confidence):
     if img_array.shape[2] == 4:
         img_array = img_array[:, :, :3]  # Drop the last channel (alpha channel)
 
-    writeLog("logs_yolow.txt", "yolow - Image shape: " + str(np.shape(img_array)))
+    #writeLog("logs_yolow.txt", "yolow - Image shape: " + str(np.shape(img_array)))
     # Detection
     results = model.predict(img_array)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
-    writeLog("logs_yolow.txt", "yolow - Inference time: " + str(elapsed_time) + " seconds")
+    #writeLog("logs_yolow.txt", "yolow - Inference time: " + str(elapsed_time) + " seconds")
     #writeLog("logs_yolow.txt", type(results[0]))
     
     # if result[0]["obb"] is not None:
@@ -79,26 +79,17 @@ def detect_yolow(model, b64_image, confidence):
 
     boxes = [b.xywh for b in results[0].boxes]
     confidences = [b.conf for b in results[0].boxes]
-    class_ids = [b.id for b in results[0].boxes if b.id]
-    class_names = []
+    class_ids = [int(b[5]) for b in results[0].boxes.data]
+    class_names = [classes[class_id] for class_id in class_ids]
     
     if len(class_ids) > 0:
         class_names = [classes[int(class_id)] for class_id in class_ids if class_id is not None]
 
-
-    #if class_ids != []:
-    #writeLog("logs_yolow.txt", results[0])
-    if len(boxes)>0:
-        writeLog("logs_yolow.txt", boxes)
-        writeLog("logs_yolow.txt", confidences)
-        writeLog("logs_yolow.txt", class_ids)
-        writeLog("logs_yolow.txt", class_names)
-
     objects = []
     for i, box in enumerate(boxes):
         obj = xywh2xiyi(box, img_w, img_h) # returns dict of bounds: x1 y1, .... x4 y4
-        obj["confidence"] = confidences[i]
-        obj["tagName"] = "TO DO"
+        obj["confidence"] = float(confidences[i])
+        obj["tagName"] = class_names[i]
         objects.append(obj)
     
     # 2024/05/17 10:07:55:Detections(xyxy=array([[     618.06,      494.75,      858.95,      555.18],
@@ -120,7 +111,8 @@ def detect_yolow(model, b64_image, confidence):
     resDicts = {}
     resDicts["objects"] = objects
     resDicts["all_classes"] = classes
-    writeLog(resDicts, class_names)
+    resDicts["time"] = elapsed_time
+    writeLog("logs_yolow.txt", resDicts)
     return resDicts
 
 
