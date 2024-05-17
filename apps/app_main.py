@@ -26,14 +26,14 @@ def release_rtsp_stream(cap):
         cap.release()
         cv2.destroyAllWindows()
 
-def detect_orcnn(img_path, filter):
+def detect_orcnn(img_path, filter_dict):
     # filter = {
     #         "classes": ["car", "train"]
     #         "confidence": 0.001
     #     },
     print(f"Calling detect orcnn")
     url = 'https://10.0.0.204:2053/detect_orcnn' # fex-6
-    payload = json.dumps({"imageData": img_path, "filter": filter})
+    payload = json.dumps({"imageData": img_path, "filter": filter_dict})
     headers = {'Content-Type': 'application/json'}
     response = requests.request("POST", url, headers=headers, data=payload, verify=False)
 
@@ -47,14 +47,36 @@ def detect_orcnn(img_path, filter):
 
     return ret
 
-def detect_yolow(img_path, filter):
+def detect_yolow(img_path, filter_dict):
     # filter = {
     #         "classes": ["car", "train"]
     #         "confidence": 0.001
     #     },
     print(f"Calling detect yolow")
     url = 'https://10.0.0.204:2054/detect_yolow' # fex-6
-    payload = json.dumps({"imageData": img_path, "filter": filter})
+    payload = json.dumps({"imageData": img_path, "filter": filter_dict})
+    headers = {'Content-Type': 'application/json'}
+    response = requests.request("POST", url, headers=headers, data=payload, verify=False)
+
+    ret = {}
+    # Parse the response content to JSON
+    try:
+        ret = response.json()
+    except ValueError as e:
+        print(f"Failed to parse JSON from {url}: {e}")
+        print(f"Response content: {response.content}")
+
+    return ret
+
+
+def detect_yolo_tanks_trucks(img_path, filter_dict):
+    # filter = {
+    #         "classes": ["car", "train"]
+    #         "confidence": 0.001
+    #     },
+    print(f"Calling detect yolow")
+    url = 'https://10.0.0.68:2055/detect_yolo_tanks_trucks' # fex-3
+    payload = json.dumps({"imageData": img_path, "filter": filter_dict})
     headers = {'Content-Type': 'application/json'}
     response = requests.request("POST", url, headers=headers, data=payload, verify=False)
 
@@ -78,15 +100,18 @@ def update_annotations(img_path, num_frames, result_filter):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_orcnn = executor.submit(detect_orcnn, img_path, result_filter["orcnn"])
         future_yolow = executor.submit(detect_yolow, img_path, result_filter["yolow"])
+        future_yolo_tanks_trucks = executor.submit(detect_yolo_tanks_trucks, img_path, result_filter["yolo_tanks_trucks"])
 
         
         orcnn_results = future_orcnn.result()
         yolow_results = future_yolow.result()
+        yolo_tanks_trucks = future_yolow.result()
 
     # Aggregate results (example: concatenate the results)
     annotations = {
         "orcnn": orcnn_results,
-        "yolow": yolow_results
+        "yolow": yolow_results,
+        "yolo_tanks_trucks": yolo_tanks_trucks
     }
 
     global last_annotations
@@ -111,6 +136,10 @@ def process_stream(stream_url, output_folder):
         "orcnn":{
             "classes": ["plane", "baseball-diamond", "bridge", "ground-track-field", "small-vehicle", "large-vehicle", "storage-tank", "roundabout", "harbor", "helicopter"],
             "confidence": 0.6
+        },
+        "yolo_tanks_trucks":{
+            "classes": ["military_tank", "military_truck"],
+            "confidence": 0.6
         }
     }
 
@@ -130,7 +159,11 @@ def process_stream(stream_url, output_folder):
             
             # Saving image each n frames
             if previous_annotations != last_annotations:
-                print(last_annotations)
+                for model in last_annotations.keys():
+                    if "time" in last_annotations[model]:
+                        print("Time model " + model + " : " + str(last_annotations[model]["time"]))
+                    else:
+                        print(last_annotations[model])
                 # update last annotation
                 previous_annotations = last_annotations
                 
@@ -186,7 +219,7 @@ def annotate_img(image, annotations):
         x4 = bounds["x4"]
         y4 = bounds["y4"]
         draw.polygon([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], outline="red")
-        
+
     return image
 
 
