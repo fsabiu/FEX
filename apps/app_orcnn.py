@@ -21,20 +21,25 @@ def detect_orcnn():
     body = request.get_json(force=True)
     if 'imageData' not in body:
         return jsonify({'response': 'imageData required'}), status.HTTP_400_BAD_REQUEST
-    
-    if 'confidence' not in body:
-        confidence = 0.5
-    else:
-        confidence = body["confidence"]
+
     
     b64_image = body["imageData"]
 
     global orcnn_model
-    result = utils.detect_orcnn(orcnn_model, b64_image, confidence)
+    result = utils.detect_orcnn(orcnn_model, b64_image, 0.1)
 
     result["status"] = "success"
+    if "filter" in body:
+        result = filter_result(result, filter)
 
     return jsonify(result)
+
+
+def filter_results(result, filter):
+    # Filter the objects based on the tag name
+    filtered_objects = [obj for obj in results['objects'] if obj['tagName'] in filter['classes'] and obj['confidence'] >= filter['confidence']]
+    results['objects'] = filtered_objects
+    return result
 
 
 def formatResponse(response, list_field, page, limit):
