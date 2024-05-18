@@ -46,7 +46,18 @@ def stream_images_as_rtsp(image_folder, rtsp_url, width, height, fps):
     out.release()
     print("RTSP streaming finished.")
 
-# Example usage
+# PER FRANCESCO (COPIA create_writer)
+def stream_opencv_img_as_rtsp(img, rtsp_url, width, height, fps):
+    out = create_writer(rtsp_url,width,height,fps)
+    while True:
+        if frame is not None:
+            frame_resized = cv2.resize(img, (width, height))
+            out.write(frame_resized)
+    # Release VideoWriter object
+    out.release()
+    print("RTSP streaming finished.")# Example usage
+    
+
 image_folder = "frames/frame_20240518_142920"
 rtsp_url = "rtsp://localhost:8554/mystream"
 width = 1280
