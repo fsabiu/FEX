@@ -1,5 +1,6 @@
 from collections import defaultdict
 from multiprocessing import Process, Queue
+import utils_yolo
 import time
 from ultralytics import YOLO
 import cv2
@@ -20,23 +21,20 @@ def producer(queue, path, p_id):
             print("break")
             break
 
-        
         # Run YOLO prediction on the frame
         results = model.predict(source=frame, device=f'cuda:{p_id}')
         raw_image = results[0].orig_img
-        boxes = results[0].boxes 
+        
+        res_dict = utils_yolo.get_result_dict(results[0])
         img_hash = hash(frame.tobytes())
         end = time.time()
-        queue.put({"yolo_version": p_id, "boxes": boxes, "img_hash": img_hash})
+
+        queue.put({"yolo_version": p_id, "res_dict": res_dict, "img_hash": img_hash})
         
         elapsed = end - start
 
         total_elapsed.append(elapsed)
 
-    
-
-    #print("Elapsed avg " + str((frames-20)/total_elapsed))
-    print(total_elapsed)
     # Release the capture and close windows
     cap.release()
 
