@@ -79,7 +79,7 @@ def detect_yolo(model, b64_image, confidence):
 
     # returns objects, all classes, class_ids. objects is a list of bounds, tagName, confidence
     resDicts = get_result_dict(model, results[0]) 
-    
+    resDicts["time"] = elapsed_time
     writeLog("logs_yolo.txt", resDicts)
     return resDicts
 
@@ -102,7 +102,6 @@ def get_result_dict(model, result):
     resDicts = {}
     resDicts["objects"] = objects
     resDicts["all_classes"] = class_ids
-    resDicts["time"] = elapsed_time
 
     return resDicts
 
