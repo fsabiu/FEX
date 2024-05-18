@@ -101,7 +101,7 @@ def get_result_dict(model, result):
 
     resDicts = {}
     resDicts["objects"] = objects
-    resDicts["all_classes"] = class_ids
+    resDicts["all_classes"] = class_names
 
     return resDicts
 
