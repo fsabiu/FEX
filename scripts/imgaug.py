@@ -131,7 +131,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     n_agument = int(sys.argv[1])
-    frequency = int(sys.argv[2])
+    frequency = float(sys.argv[2])
     parent_dir = sys.argv[3]
     img_dir = sys.argv[4]
     labels_dir = sys.argv[5]
