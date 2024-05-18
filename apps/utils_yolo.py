@@ -31,7 +31,7 @@ def detect_yolo(model, b64_image, confidence):
     bounding_box_annotator = sv.BoundingBoxAnnotator()
     label_annotator = sv.LabelAnnotator()
 
-    start_time = time.time()
+    #start_time = time.time()
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
     frmt = "png"
     name = f"yolo_img_{timestamp}.{frmt}"
@@ -54,6 +54,7 @@ def detect_yolo(model, b64_image, confidence):
 
     #writeLog("logs_yolo.txt", "yolo - Image shape: " + str(np.shape(img_array)))
     # Detection
+    start_time = time.time()
     results = model(path)
 
     end_time = time.time()
@@ -76,12 +77,19 @@ def detect_yolo(model, b64_image, confidence):
 
     #objects = getObjects("yolow", model, result)
 
-    img = results[0].orig_img
+    # returns objects, all classes, class_ids. objects is a list of bounds, tagName, confidence
+    resDicts = get_result_dict(model, results[0]) 
+    
+    writeLog("logs_yolo.txt", resDicts)
+    return resDicts
+
+def get_result_dict(model, result):
+    img = result.orig_img
     img_w, img_h = get_np_image_size(img)
 
-    boxes = [b.xywh for b in results[0].boxes]
-    confidences = [b.conf for b in results[0].boxes]
-    class_ids = [int(b[5]) for b in results[0].boxes.data]
+    boxes = [b.xywh for b in result.boxes]
+    confidences = [b.conf for b in result.boxes]
+    class_ids = [int(b[5]) for b in result.boxes.data]
     class_names = [model.names[class_id] for class_id in class_ids]
 
     objects = []
@@ -95,10 +103,8 @@ def detect_yolo(model, b64_image, confidence):
     resDicts["objects"] = objects
     resDicts["all_classes"] = class_ids
     resDicts["time"] = elapsed_time
-    writeLog("logs_yolo.txt", resDicts)
+
     return resDicts
-
-
 
 def get_np_image_size(image):
     if image.ndim == 3:  # Color image
