@@ -23,7 +23,7 @@ def create_folder_structure( dataset_tgt_folder):
     val_path = os.path.join(dataset_path, "val")
     test_path = os.path.join(dataset_path, "test")
     folders = [train_path, val_path, test_path]
-
+    
     for folder in folders:
         os.makedirs(folder, exist_ok=True)
         os.makedirs(os.path.join(folder, "images"), exist_ok=True)
@@ -76,28 +76,60 @@ def change_labels_classes(datasets_dict):
 
     return changes
 
+def transform_dict(d):
+    result = {}
+    
+    for key, value in d.items():
+        if isinstance(value, dict):
+            nested = transform_dict(value)
+            if key in result:
+                result[key].update(nested)
+            else:
+                result[key] = nested
+        else:
+            result[key] = value
+
+    flattened_result = {}
+    for key, value in result.items():
+        if isinstance(value, dict) and key in result:
+            flattened_result.update(value)
+        else:
+            flattened_result[key] = value
+    
+    return flattened_result
+
+def main_transform(d):
+    final_result = {}
+    
+    for main_key, main_value in d.items():
+        if isinstance(main_value, dict):
+            final_result[main_key] = transform_dict(main_value)
+        else:
+            final_result[main_key] = main_value
+
+    return final_result
+
+
 def modify_labels(dataset_tgt_folder, changes):
     base_path = os.path.expanduser("/shared/")
 
     dataset_path = os.path.join(base_path, "datasets_for_training", "YOLO_" + str(dataset_tgt_folder))
-
-    transformed_changes = {}
-    for class_changes in changes.values():
-        for new_id in class_changes.values():
-            transformed_changes.update(new_id)
-
-    #print(transformed_changes)
+    print(changes)
+    transformed_dict = main_transform(changes)
+    print(transformed_dict)
+    
 
     for dir_name, class_changes in changes.items():
         for phase in ["train", "val", "test"]:
+            print(transformed_dict[dir_name])
             label_dir = os.path.join(dataset_path, phase, "labels")
 
             for filename in os.listdir(label_dir):
                 if filename.startswith(dir_name):
                     file_path = os.path.join(label_dir, filename)
                     if bool(class_changes):
-                        #print(file_path, transformed_changes)
-                        update_labels_in_file(file_path, transformed_changes)
+                        print(file_path, transformed_dict[dir_name])
+                        update_labels_in_file(file_path, transformed_dict[dir_name])
 
                 
                 
