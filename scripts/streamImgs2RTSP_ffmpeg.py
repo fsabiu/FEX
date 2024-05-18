@@ -17,7 +17,7 @@ def build_streaming_command(frame_rate, rtsp_url):
             # '-s', f'1280x720',
             '-framerate', f'{frame_rate}',  # Set frame rate (adjust as needed)
             '-i', '-',  # Read input from stdin
-            '-r', f'{frame_rate}',
+            '-r', '100',
             # '-re',
             # "-af", "atempo=0.5",
             # '-pix_fmt', 'yuv420p',
