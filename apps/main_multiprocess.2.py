@@ -1,6 +1,8 @@
 from collections import defaultdict, deque
 from multiprocessing import Process, Queue
+from datetime import datetime
 import utils_yolo
+import os
 import sys
 import time
 from threading import Thread, RLock
@@ -123,6 +125,22 @@ def aggregator(frame_queue, queues_in, queue_out, confidence_filters=None):
         print(E)
     print("aggregator", "completed")
 
+def save_image_with_timestamp(image):
+    # Generate a timestamp
+    image_timestamp = datetime.now().strftime("%Y%m%d%H%M%S_%f")
+
+    # Check if the path /shared/test_stream/ exists, create it if it doesn't
+    directory_path = "/shared/test_stream/"
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+
+    # Create the full file path
+    file_path = os.path.join(directory_path, f"image_{image_timestamp}.png")
+
+    # Save the image using OpenCV
+    cv2.imwrite(file_path, image)
+    print(f"Image saved at: {file_path}")
+
 def consumer(queue_in, to_print=False, confidence_filters=None):
     try:
         rtsp_url = "rtsp://localhost:8554/mystream"
@@ -137,31 +155,23 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
 
         # TODO REMOVE
         out_w, out_h = 300, 300
-        out = create_writer(rtsp_url, out_w, out_h, fps)
+        #out = create_writer(rtsp_url, out_w, out_h, fps)
 
         while True:
             processed_frame = queue_in.get()
             frame = processed_frame["frame"]
+            res_dicts = processed_frame["res_dicts"]
             frame_h, frame_w = frame.shape[:2]
-            if out is None or frame_h != out_h or frame_w != out_w:
-                out_h, out_w = frame_h, frame_w
-                out = create_writer(rtsp_url, frame_w, frame_h, fps)
+            #if out is None or frame_h != out_h or frame_w != out_w:
+            #    out_h, out_w = frame_h, frame_w
+            #    out = create_writer(rtsp_url, frame_w, frame_h, fps)
                 
-            filtered_objects = utils_yolo.get_filtered_objects(frame, confidence_filters)
+            filtered_objects = utils_yolo.get_filtered_objects(res_dicts, confidence_filters)
             annotated_frame = annotate_img_opencv(frame, filtered_objects)
-            out.write(annotated_frame)
+            #out.write(annotated_frame)
             print(np.shape(annotated_frame))
-            raise ValueError("OK")
-            
-            frames = frames + 1
-            if frames==init_frame:
-                start = time.time()
-            elif frames<=init_frame:
-                if to_print:
-                    print("consumer:", frames)
-            if to_print and frames >= init_frame:
-                elapsed = time.time() - start
-                print("consumer: ", (frames-init_frame)/elapsed)
+            save_image_with_timestamp(annotated_frame)
+
     except KeyboardInterrupt:
         pass
     except RuntimeError as E:
@@ -173,73 +183,62 @@ if __name__ == "__main__":
     Usage: demo_multiprocess.py stream_url 
     """
 
-    # n_producers = 2
+    n_producers = 2
 
-    # # yolo1_confidence_filters = {
-    # #     "military_tank": 0.05,
-    # #     "military_truck": 0.05
-    # # }
+    queue_read2aggr = Queue()
+    queues_read2pred = [Queue() for _ in range(n_producers)]
+    queues_pred2aggr = [Queue() for _ in range(n_producers)]
+    queue_aggr2cons = Queue()
 
-    # # yolo2_confidence_filters = {
-    # #     "military_tank": 0.05,
-    # #     "military_truck": 0.05
-    # # }
+    queues = [queue_read2aggr, queue_aggr2cons] + queues_read2pred + queues_pred2aggr
+    processes = []
 
-    # queue_read2aggr = Queue()
-    # queues_read2pred = [Queue() for _ in range(n_producers)]
-    # queues_pred2aggr = [Queue() for _ in range(n_producers)]
-    # queue_aggr2cons = Queue()
+    stream_url = sys.argv[1]
+    read_frames_process = Process(target=read_frames, args=(stream_url, queue_read2aggr, queues_read2pred))
+    processes.append(read_frames_process)
 
-    # queues = [queue_read2aggr, queue_aggr2cons] + queues_read2pred + queues_pred2aggr
-    # processes = []
-
-    # stream_url = sys.argv[1]
-    # read_frames_process = Process(target=read_frames, args=(stream_url, queue_read2aggr, queues_read2pred))
-    # processes.append(read_frames_process)
-
-    # yolo_paths = [
-    #     "../apps/models/best_tanks_militaryTrucks.pt",
-    #     "../apps/models/best_tanks_militaryTrucks.pt",
-    # ]
-    # yolo_confidence_filters = [
-    #     dict(military_tank=0.05, military_truck=0.05),
-    #     dict(military_tank=0.05, military_truck=0.05),
-    # ]
+    yolo_paths = [
+        "../apps/models/best_tanks_militaryTrucks.pt",
+        "../apps/models/best_tanks_militaryTrucks.pt",
+    ]
+    yolo_confidence_filters = [
+        dict(military_tank=0.05, military_truck=0.05),
+        dict(military_tank=0.05, military_truck=0.05),
+    ]
     
-    # predictor_procesesses = [
-    #     Process(
-    #         target=predictor,
-    #         args=(yolo_paths[i], queues_read2pred[i], queues_pred2aggr[i], i)
-    #     ) for i in range(n_producers)
-    # ]
-    # processes += predictor_procesesses
+    predictor_procesesses = [
+        Process(
+            target=predictor,
+            args=(yolo_paths[i], queues_read2pred[i], queues_pred2aggr[i], i)
+        ) for i in range(n_producers)
+    ]
+    processes += predictor_procesesses
 
-    # aggregator_process = Process(target=aggregator,
-    #     args=(queue_read2aggr, queues_pred2aggr, queue_aggr2cons))
-    # processes.append(aggregator_process)
+    aggregator_process = Process(target=aggregator,
+        args=(queue_read2aggr, queues_pred2aggr, queue_aggr2cons))
+    processes.append(aggregator_process)
 
-    # consumer_process = Process(target=consumer, 
-    #     args=(queue_aggr2cons, False, yolo_confidence_filters))
-    # processes.append(consumer_process)
+    consumer_process = Process(target=consumer, 
+        args=(queue_aggr2cons, False, yolo_confidence_filters))
+    processes.append(consumer_process)
 
-    # for process in processes:
-    #     process.start()
+    for process in processes:
+        process.start()
 
-    # try:
-    #     for process in processes:
-    #         process.join()
-    # except KeyboardInterrupt:
-    #     pass
-    # except RuntimeError as E:
-    #     print(E)
-    # print("main", "completed")
+    try:
+        for process in processes:
+            process.join()
+    except KeyboardInterrupt:
+        pass
+    except RuntimeError as E:
+        print(E)
+    print("main", "completed")
 
 
-    # # # Check if there were any exceptions
-    # # if not error_queue.empty():
-    # #     #print("An error occurred in the consumer process:")
-    # #     with open('logs_ww.txt', 'a') as f:
-    # #         f.write("An error occurred in the consumer process:\n")
-    # #         f.write(error_queue.get())
-    # #         f.write("\n")  # Ensure a new line after the traceback
-    create_writer("rtsp://localhost:8554/mystream",1280,720,30)
+    # # Check if there were any exceptions
+    # if not error_queue.empty():
+    #     #print("An error occurred in the consumer process:")
+    #     with open('logs_ww.txt', 'a') as f:
+    #         f.write("An error occurred in the consumer process:\n")
+    #         f.write(error_queue.get())
+    #         f.write("\n")  # Ensure a new line after the traceback
