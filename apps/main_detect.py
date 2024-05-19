@@ -12,6 +12,7 @@ import cv2
 import itertools
 from PIL import Image
 import queue as queue_lib
+import time
 
 def annotate_img_opencv(image, annotations):
     """
@@ -111,7 +112,7 @@ def create_writer(rtsp_url,width,height,fps):
     out = cv2.VideoWriter('appsrc ! videoconvert' + \
         # ' !videorate max-rate=4 ' + \
         ' ! video/x-raw,format=I420' + \
-        ' ! x264enc  speed-preset=medium tune=zerolatency bitrate=800' \
+        ' ! x264enc  speed-preset=medium tune=zerolatency bitrate=2000' \
         ' ! video/x-h264,profile=baseline' + \
         ' ! rtspclientsink location=' + rtsp_url,
         cv2.CAP_GSTREAMER, fourcc, fps, (width, height), True)
@@ -142,11 +143,16 @@ def read_frames(stream_url, aggr_queue, queues, to_print=False):
         if to_print:
             print("read_frames is printing")
         cap = cv2.VideoCapture(stream_url)
+        frames = 0
         while True:
+            
             start = time.time()
             ret, frame = cap.read()
+
             if not ret or frame is None:
-                raise RuntimeError("read_frames failure")
+                print("Waiting for stream...")
+                time.sleep(2)
+                pass
 
             aggr_queue.put(frame)
             for queue in queues:
@@ -220,7 +226,7 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
     try:
         rtsp_url = "rtsp://localhost:8554/mystream"
         hls_url = "rtsp://localhost:8888/mystream"
-        fps = 30
+        fps = 25
         out = None
         out_w = None
         out_h = None
@@ -232,6 +238,8 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
         # TODO REMOVE
         # out_w, out_h = 300, 300
         # out = create_writer(rtsp_url, out_w, out_h, fps)
+        last_loop = time.time()
+        print("Streaming...")
 
         while True:
             processed_frame = queue_in.get()
@@ -241,13 +249,17 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
             if out is None or frame_h != out_h or frame_w != out_w:
                out_h, out_w = frame_h, frame_w
                out = create_writer(rtsp_url, frame_w, frame_h, fps)
-               out_hls = create_writer_hls(hls_url, frame_w, frame_h, fps)
+               #out_hls = create_writer_hls(hls_url, frame_w, frame_h, fps)
+            frames=frames+1
+            if frames >= init_frame:
+                filtered_objects = utils_yolo.get_filtered_objects(res_dicts, confidence_filters)
+                annotated_frame = annotate_img_opencv(frame, filtered_objects)
                 
-            filtered_objects = utils_yolo.get_filtered_objects(res_dicts, confidence_filters)
-            annotated_frame = annotate_img_opencv(frame, filtered_objects)
-            out.write(annotated_frame)
-            print(np.shape(annotated_frame))
-            # save_image_with_timestamp(annotated_frame)
+                out.write(annotated_frame)
+                #out_hls.write(annotated_frame)
+                if frames % 300 == 0 :  
+                    ts = time.time()
+
 
     except KeyboardInterrupt:
         pass
@@ -279,7 +291,7 @@ if __name__ == "__main__":
         "../apps/models/best_tanks_militaryTrucks.pt",
     ]
     yolo_confidence_filters = [
-        dict(pedestrian=0.3, car=0.3, van=0.3, truck=0.3, military_tank=0.3, military_truck=0.3, military_vehicle=0.3),
+        dict(pedestrian=0.5, car=0.3, van=0.3, truck=0.3, military_tank=0.6, military_truck=0.3, military_vehicle=0.3),
         dict(military_tank=0.05, military_truck=0.05),
     ]
     
