@@ -142,6 +142,51 @@ def read_frames(stream_url, aggr_queue, queues, to_print=False):
     try:
         if to_print:
             print("read_frames is printing")
+
+        cap = None
+        while cap is None or not cap.isOpened():
+            cap = cv2.VideoCapture(stream_url)
+            if not cap.isOpened():
+                print("Unable to open stream, retrying in 1 second...")
+                time.sleep(1)
+
+        frames = 0
+        while True:
+            start = time.time()
+            ret, frame = cap.read()
+
+            if not ret or frame is None:
+                cap.release()  # Release the current capture before reinitializing
+                if not cap.isOpened():
+                    print("Unable to open stream, retrying in 2 seconds...")
+                    time.sleep(2)
+                cap = cv2.VideoCapture(stream_url)
+                continue
+
+            frames += 1
+            aggr_queue.put(frame)
+            if frames % 300 == 0:
+                print(f"Reading... - frame {frames}")
+            for queue in queues:
+                queue.put(frame)
+
+            if to_print:
+                elapsed = time.time() - start
+                print("fps_so_far:", 1 / elapsed)
+
+    except KeyboardInterrupt:
+        pass
+    except RuntimeError as E:
+        print(E)
+    finally:
+        if cap is not None:
+            cap.release()
+    print("read_frames completed")
+
+def read_frames_old(stream_url, aggr_queue, queues, to_print=False):
+    try:
+        if to_print:
+            print("read_frames is printing")
         cap = cv2.VideoCapture(stream_url)
         frames = 0
         while True:
@@ -151,6 +196,7 @@ def read_frames(stream_url, aggr_queue, queues, to_print=False):
 
             if not ret or frame is None:
                 print("Waiting for stream...")
+                time.sleep(1)
                 continue
             frames = frames + 1
             aggr_queue.put(frame)
@@ -227,7 +273,7 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
     try:
         rtsp_url = "rtsp://localhost:8554/mystream"
         hls_url = "rtsp://localhost:8888/mystream"
-        fps = 25
+        fps = 30
         out = None
         out_w = None
         out_h = None
@@ -289,11 +335,11 @@ if __name__ == "__main__":
     processes.append(read_frames_process)
 
     yolo_paths = [
-        "../apps/models/yolo_VDTMLT_620p.pt",
+        "../apps/models/yolo_VDTMLT_1024p.pt",
         "../apps/models/best_tanks_militaryTrucks.pt",
     ]
     yolo_confidence_filters = [
-        dict(pedestrian=0.5, car=0.3, van=0.3, truck=0.3, military_tank=0.6, military_truck=0.3, military_vehicle=0.3),
+        dict(pedestrian=0.5, car=0.65, van=0.5, truck=0.3, military_tank=0.6, military_truck=0.4, military_vehicle=0.4),
         dict(military_tank=0.05, military_truck=0.05),
     ]
     
