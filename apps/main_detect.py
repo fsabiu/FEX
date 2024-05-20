@@ -151,10 +151,11 @@ def read_frames(stream_url, aggr_queue, queues, to_print=False):
 
             if not ret or frame is None:
                 print("Waiting for stream...")
-                time.sleep(2)
-                pass
-
+                continue
+            frames = frames + 1
             aggr_queue.put(frame)
+            if frames % 50 == 0:
+                print("Reading")
             for queue in queues:
                 queue.put(frame)
 
@@ -239,7 +240,7 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
         # out_w, out_h = 300, 300
         # out = create_writer(rtsp_url, out_w, out_h, fps)
         last_loop = time.time()
-        print("Streaming...")
+        #print("Streaming...")
 
         while True:
             processed_frame = queue_in.get()
@@ -249,6 +250,7 @@ def consumer(queue_in, to_print=False, confidence_filters=None):
             if out is None or frame_h != out_h or frame_w != out_w:
                out_h, out_w = frame_h, frame_w
                out = create_writer(rtsp_url, frame_w, frame_h, fps)
+               print("Output created")
                #out_hls = create_writer_hls(hls_url, frame_w, frame_h, fps)
             frames=frames+1
             if frames >= init_frame:
