@@ -421,12 +421,17 @@ def calculate_iou(box1, box2):
     return iou
 
 def assign_ids(current_detections, history, next_id):
+    n_hist = history.maxlen
+    min_appearance_threshold = 0.007  # 0.7% of n_hist frames
 
     # Flatten the history to a list of all previous objects with their IDs
     past_objects = [(obj, frame_id, obj_id) for frame_id, frame in enumerate(history) for obj_id, obj in frame.items()]
 
     # Prepare the current frame's objects dictionary
     current_frame_objects = {}
+
+    # Count the appearances of each ID in the history
+    id_appearance_count = Counter(obj_id for frame in history for obj_id in frame.keys())
 
     for detection in current_detections:
         best_match = None
@@ -442,7 +447,13 @@ def assign_ids(current_detections, history, next_id):
             detection_id = best_match
         else:
             detection_id = next_id
-            next_id += 1
+
+        # Check if the detection ID should be assigned a new ID
+        if detection_id == next_id:
+            if len(history) == 0 or id_appearance_count[next_id] / n_hist < min_appearance_threshold:
+                # If the history is empty or the ID appears less than the threshold, assign a new ID
+                next_id += 1
+                detection_id = next_id
 
         detection_with_id = detection.copy()
         detection_with_id['id'] = detection_id
