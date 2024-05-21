@@ -14,6 +14,11 @@ from PIL import Image
 import queue as queue_lib
 import time
 
+import av
+import klvdata
+
+KLV_AV_FIX = b'\x06\x0e+4\x02'
+
 def is_object_in_polygons(bounds, polygons):
     """
     Check if the object identified by bounds is included in any of the polygons.
@@ -237,53 +242,106 @@ def read_drone_info(): # TO DO
 
     return drone_dict
 
-def read_frames(stream_url, aggr_queue, queues, to_print=False):
-    try:
-        if to_print:
-            print("read_frames is printing")
+def get_pts(frame):
+    return frame.pts
 
-        cap = None
-        while cap is None or not cap.isOpened():
-            cap = cv2.VideoCapture(stream_url)
-            if not cap.isOpened():
-                print("Unable to open stream, retrying in 1 second...")
-                time.sleep(1)
+def dumpKLV(items, indent=0):
+    TAB = '\t'
+    for block in items:
+        if hasattr(block, 'items'):
+            print(f"{TAB * indent}{block.name}")
+            dumpKLV(block.items.values(), indent=indent+1)
+        else:
+            print(f"{TAB * indent}{block.name} => {block.value}")
 
-        frames = 0
-        while True:
-            start = time.time()
-            ret, frame = cap.read()
-            # metadata read function 
-            if not ret or frame is None:
-                cap.release()  # Release the current capture before reinitializing
-                if not cap.isOpened():
-                    print("Unable to open stream, retrying in 1 seconds...")
-                    time.sleep(1)
-                cap = cv2.VideoCapture(stream_url)
-                continue
-            
-            frames += 1
-            # Read drone coordinates
-            drone_dict = read_drone_info() # TO DO
+def fromKLV(metadata_set):
+    def value(clazz):
+        item = metadata_set.items.get(clazz.key)
+        return item.value.value if item else None
 
-            aggr_queue.put((frame, drone_dict))
-            if frames % 300 == 0:
-                print(f"Reading... - frame {frames}")
-            for queue in queues:
-                queue.put(frame)
+    drone_dict = {}
+    drone_dict["ts"] = value(klvdata.misb0601.PrecisionTimeStamp) 
 
+    drone_dict["lat_dron"] = value(klvdata.misb0601.SensorLatitude) #52.2296756
+    drone_dict["lon_dron"] = value(klvdata.misb0601.SensorLongitude) #21.0122287
+    drone_dict["h_dron"] = value(klvdata.misb0601.SensorTrueAltitude) #100  # Drone altitude in meters
+
+    drone_dict["pitch"] = value(klvdata.misb0601.PlatformPitchAngle) + value(klvdata.misb0601.SensorRelativeElevationAngle) #-10  # Camera pitch in degrees
+    drone_dict["yaw"] = value(klvdata.misb0601.PlatformHeadingAngle) + value(klvdata.misb0601.SensorRelativeAzimuthAngle) #45  # Azimuth in degrees
+    drone_dict["roll"] = value(klvdata.misb0601.PlatformRollAngle) + value(klvdata.misb0601.SensorRelativeRollAngle) #0  # Roll in degrees
+
+    # drone_dict["f"] = #35  # Camera focal length in mm
+    # drone_dict["img_width"] = 4000  # Image width in pixels
+    # drone_dict["img_height"] = 3000  # Image height in pixels
+    # drone_dict["x_pixel"] = 2000  # x-coordinate of the pixel
+    # drone_dict["y_pixel"] = 1500  # y-coordinate of the pixel
+
+    drone_dict["fov_h"] = value(klvdata.misb0601.SensorHorizontalFieldOfView) # Camera field of view horizontal
+    drone_dict["fov_v"] = value(klvdata.misb0601.SensorVerticalFieldOfView) # Camera field of view vertical
+
+    return drone_dict
+
+def read_frames(source, aggr_queue, queues, to_print=False):
+    while True:
+        try:
             if to_print:
-                elapsed = time.time() - start
-                print("fps_so_far:", 1 / elapsed)
+                print("read_frames is opening the source")
 
-    except KeyboardInterrupt:
-        pass
-    except RuntimeError as E:
-        print(E)
-    finally:
-        if cap is not None:
-            cap.release()
-    print("read_frames completed")
+            with av.open(source, 
+                    mode='r', 
+                    options={
+                        'rtsp_transport': 'tcp'
+                    }) as container:
+                pts_offset = None
+                start_time = None
+                klv_fix = KLV_AV_FIX
+
+                drone_dict = None
+
+                for packet in container.demux():
+                    if packet.size == 0:
+                        continue
+                    if pts_offset is None:
+                        pts_offset = packet.pts
+                    
+
+                    if packet.stream.type == 'data':
+                        for block in klvdata.StreamParser(klv_fix + bytes(packet)):
+                            if isinstance(block, klvdata.element.UnknownElement):
+                                # Try to un-fix parser problem for KLV streams in ffmpeg 6.1.x
+                                klv_fix = b''
+                            elif isinstance(block, klvdata.misb0601.UASLocalMetadataSet):
+                                drone_dict = fromKLV(block)
+                            else:
+                                print("other telemetry data")
+                                dumpKLV([block])
+                        continue
+
+                    frames = packet.decode()
+                    if start_time is None:
+                        start_time = time.time()
+                    if packet.stream.type != 'video':
+                        continue
+
+                    for frame in frames:
+                        img = frame.to_ndarray(format='bgr24')
+                        aggr_queue.put((img, drone_dict))
+                        for queue in queues:
+                            queue.put(img)
+
+            print("container safely closed, will try reopening in 1 second")
+            time.sleep(1)
+
+        except KeyboardInterrupt:
+            print("read_frames completed")
+            return
+        except RuntimeError as E:
+            print(E)
+            return
+        except Exception as E:
+            print(E)
+            print("will continue in 5 seconds")
+            time.sleep(5)
 
 def predictor(model_path, queue_in, queue_out, p_id):
     try:
