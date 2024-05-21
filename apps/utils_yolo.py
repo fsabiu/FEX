@@ -184,6 +184,7 @@ def get_filtered_objects(res_dicts, confidence_filters):
         # {'objects': [{'bounds': {'x1': 1.4476394653320312, 'y1': 0.0, 'x2': 1279.073600769043, 'y2': 0.0, 'x3': 1279.073600769043, 'y3': 719.9581575393677, 'x4': 1.4476394653320312, 'y4': 719.9581575393677}, 'confidence': 0.9507214426994324, 'tagName': 'military_tank'}], 'all_classes': ['military_tank', 'military_truck'], 'yolo_producer': 0}
         for obj in res_dict['objects']: # if confidence filter for that object is below then append
             if obj['confidence'] >= confidence_filters[model_id][obj["tagName"]]:
+                obj["model_id"] = model_id
                 result.append(obj)
 
     #result = remove_overlapping_boxes(result)
