@@ -3,7 +3,7 @@ import base64
 import cv2
 import datetime
 from datetime import datetime
-import supervision as sv
+# import supervision as sv
 import os
 import numpy as np
 from PIL import Image
