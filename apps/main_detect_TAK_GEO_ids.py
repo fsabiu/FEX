@@ -135,10 +135,10 @@ def annotate_img_opencv(image, annotations, pixel_mask, telemetry, frame_no):
         if "id" in annotation:
             ob_id = annotation["id"]
         tag_name = annotation.get("tagName")
-        if tag_name == "car":
-            tag_name = "vehicle"
-        if tag_name == "hidden object":
-            tag_name = "vehicle"
+        if tag_name == "car" and annotation['model_id'] == 1:
+            tag_name = "hidden object"
+        #if tag_name == "hidden object":
+        #    tag_name = "vehicle"
         confidence = round(float(annotation.get("confidence")), 2)
         text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}, {annotation['model_id']}"
         
@@ -624,7 +624,7 @@ if __name__ == "__main__":
             "car": 0.80, 
             "van": 0.65,
             "truck": 0.6, 
-            "military_tank": 0.65, 
+            "military_tank": 0.70, 
             "military_truck": 0.5, 
             "military_vehicle": 0.5,  
             "military vehicle": 0.5
@@ -635,7 +635,7 @@ if __name__ == "__main__":
             "Rosomak": 0.3,
             "T72": 0.3,
             "car": 0.7,
-            "military vehicle": 0.6,
+            "military vehicle": 0.7,
             "people": 0.7,
             "soldier": 0.6,
             "trench": 0.7,
