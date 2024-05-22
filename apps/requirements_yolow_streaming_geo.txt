@@ -2,3 +2,4 @@
 ultralytics
 klvdata
 av
+# sudo apt install gstreamer1.0-rtsp
