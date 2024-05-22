@@ -233,6 +233,7 @@ def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, f, img_width, img
     return new_lat, new_lon
 
 def send_to_tak(drone_dict, filtered_objects):
+    print(filtered_objects)
     """
     if not None, drone_dict will contain
     drone_dict["ts"] = value(klvdata.misb0601.PrecisionTimeStamp) 
@@ -244,6 +245,28 @@ def send_to_tak(drone_dict, filtered_objects):
     drone_dict["roll"] = value(klvdata.misb0601.PlatformRollAngle) + value(klvdata.misb0601.SensorRelativeRollAngle) #0  # Roll in degrees
     drone_dict["fov_h"] = value(klvdata.misb0601.SensorHorizontalFieldOfView) # Camera field of view horizontal
     drone_dict["fov_v"] = value(klvdata.misb0601.SensorVerticalFieldOfView) # Camera field of view vertical
+
+    filtered_objects is a list of dictionaries like:
+    [
+        {
+            'bounds': 
+                {
+                    'x1': 1806.9841289520264, 
+                    'y1': 420.79685255885124, 
+                    'x2': 1919.9573993682861, 
+                    'y2': 420.79685255885124, 
+                    'x3': 1919.9573993682861, 
+                    'y3': 526.9543857872486, 
+                    'x4': 1806.9841289520264, 
+                    'y4': 526.9543857872486
+                }, 
+            'confidence': 0.8897793292999268, 
+            'tagName': 'car', 
+            'model_id': 1, 
+            'id': 4
+        }
+    ]
+    
     """
     if drone_dict is None:
         return
