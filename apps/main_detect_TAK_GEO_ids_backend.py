@@ -14,12 +14,22 @@ from PIL import Image
 import queue as queue_lib
 import time
 
+# Reading metadata and streaming
 import av
 import klvdata
 
+# Websocket to frontend
 import asyncio
 import websockets
 import json
+import geojson
+from geojson import Point, Feature, FeatureCollection
+
+# Websocket to TAK
+import asyncio
+from configparser import ConfigParser
+import xml.etree.ElementTree as ET
+import pytak
 
 KLV_AV_FIX = b'\x06\x0e+4\x02'
 
@@ -464,24 +474,187 @@ def predictor(model_path, queue_in, queue_out, p_id):
         print(E)
     print("predictor", p_id, "completed")
 
+def get_most_recent_versions(objects_history):
+    most_recent_versions = {}
+    
+    for sublist in objects_history:
+        for obj in sublist:
+            obj_id = obj['id']
+            # Update the dictionary for the id with the current object
+            most_recent_versions[obj_id] = obj
+            
+    # Get the final list of the most recent versions of each object
+    result = list(most_recent_versions.values())
+    return result
+
+async def send_geojson_periodically(websocket, objects_history, interval=1):
+    """Envía el FeatureCollection a intervalos regulares."""
+    while True:
+        if websocket.open:
+            recent_objects_list = get_most_recent_versions(objects_history)
+            geojson_objs = [
+            {
+                "type": "FeatureCollection",
+                "features": [
+                        {"type": "Feature", "geometry": 
+                        {"type": "Point", 
+                        "coordinates": [50.73134, 21.9524]}, 
+                        "properties": {"name": "tank", "id": "100"}}, 
+
+                        {"type": "Feature", "geometry": 
+                        {"type": "Point", "coordinates": [50.731341, 21.952401]}, 
+                        "properties": {"name": "car", "id": "101"}}, 
+
+                        {"type": "Feature", "geometry": 
+                        {"type": "Point", "coordinates": [50.731342, 21.952402]}, 
+                        "properties": {"name": "van", "id": "102"}}
+                ]
+            }
+            ]
+            feature_collection = FeatureCollection(geojson_objs)
+            await websocket.send(json.dumps(feature_collection))
+        await asyncio.sleep(interval)
 
 async def handle_message(websocket, objects_history):
-    print("dddd")
-    async for message in websocket:
-        data = json.loads(message)
-        print(data)
+    print("Handling message function")
+    asyncio.create_task(send_geojson_periodically(websocket, objects_history))
+    try:
+        async for message in websocket:
+            data = json.loads(message)               
 
-def backend(objects_queue, objects_history, to_print = True):
+    except websockets.exceptions.ConnectionClosed:
+        print("Connection closed")
+
+
+def object2COT(object) :
+    cot_types = {
+        "pedestrian": "a-h-G",
+        "car": "a-f-G-E-V-C",
+        "van": "a-f-G-E-V-V",
+        "truck": "a-f-G-E-V-T",
+        "military_tank": "a-f-G-U-C-T",
+        "military_truck": "a-f-G-U-L-T",
+        "military_vehicle": "a-f-G-U-C-V",
+        "BMP-1": "a-f-G-U-C-V-B",
+        "Rosomak": "a-f-G-U-C-V-R",
+        "T72": "a-f-G-U-C-T-T72",
+        "people": "a-h-G",
+        "soldier": "a-f-G-U-C-I",
+        "trench": "a-f-G-U-C-F-T",
+        "hidden_object": "a-f-G-E-O-H"
+    }    
+    return cot_types[object]
+
+def gen_cot_detection(object,lat,lon,h):
+    """Generate CoT Event."""
+    root = ET.Element("event")
+    root.set("version", "2.0")
+    root.set("type", object2COT(object))  # insert your type of marker
+    root.set("uid", object)
+    root.set("how", "a")
+    root.set("time", pytak.cot_time())
+    root.set("start", pytak.cot_time())
+    root.set(
+        "stale", pytak.cot_time(60)
+    )  # time difference in seconds from 'start' when stale initiates
+
+    pt_attr = {
+        "lat": str(lat),  
+        "lon": str(lon),  
+        "hae": str(h),
+        "ce": "",
+        "le": "",
+    }
+
+    ET.SubElement(root, "point", attrib=pt_attr)
+
+    return ET.tostring(root)
+
+class MySender(pytak.QueueWorker):
+    """
+    Defines how you process or generate your Cursor-On-Target Events.
+    From there it adds the COT Events to a queue for TX to a COT_URL.
+    """
+
+    def __init__(self, tx_queue, config, object, lat, lon, h):
+        super().__init__(tx_queue, config)
+        self.object = object
+        self.lat = lat
+        self.lon = lon
+        self.h = h
+        
+    async def handle_data(self, data):
+        """Handle pre-CoT data, serialize to CoT Event, then puts on queue."""
+        event = data
+        await self.put_queue(event)
+        
+    async def run(self):
+        """Run the loop for processing or generating pre-CoT data."""
+        data = gen_cot_detection(self.object, self.lat, self.lon, self.h)
+        self._logger.info("Sending:\n%s\n", data.decode())
+        await self.handle_data(data)
+
+def getConfig() :
+    config = ConfigParser()
+    config["mycottool"] = {"COT_URL": "tls://158.101.179.114:8089", 
+                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/oracle1.p12",
+                           "PYTAK_TLS_CLIENT_PASSWORD" : "atakatak",
+                           "PYTAK_TLS_DONT_VERIFY" : 1,
+                            "PYTAK_TLS_DONT_CHECK_HOSTNAME": 1
+                           } 
+    config = config["mycottool"]
+    return config
+
+async def handle_tak_message(tak_history, tak_frequency):
+    
+    config = getConfig()
+    clitool = pytak.CLITool(config)
+    await clitool.setup()
+
+    while True:
+        recent_objects_list = get_most_recent_versions(tak_history)
+        print("Object list")
+        print(len(recent_objects_list))
+        await asyncio.sleep(1/tak_frequency)
+    #sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
+    #clitool.add_tasks(set([sender]))
+    # Start all tasks.
+    #await clitool.run()
+
+    print("done")
+    
+    # async for message in websocket:
+    #     try:
+    #         data = json.loads(message)
+    #     raise RuntimeError:
+    #         print("Invalid JSON data received")
+
+    #     if data.get("action") == "add_point":
+    #         # Add or update a point
+            
+    #         feature_collection = FeatureCollection(geojson_objs)
+    #         await websocket.send(geojson.dumps(feature_collection))
+    #         # lat = data.get("latitude")
+    #         # lon = data.get("longitude")
+    #         # properties = data.get("properties", {})
+    #         # feature_id = properties.get("id")
+            
+
+
+def backend(objects_queue, objects_history, tak_history, max_history_size, tak_history_length, to_print = False):
 
     while True:
         detected_objects = objects_queue.get()
         if to_print:
             print("Backend: history size: " + str(len(objects_history)))
-            #print(detected_objects)
-        
         
         objects_history.append(detected_objects)
+        if len(objects_history) > max_history_size:
+            objects_history.pop(0)
 
+        tak_history.append(detected_objects)
+        if len(tak_history) > tak_history_length:
+            tak_history.pop(0)
 
     return
 
@@ -562,8 +735,9 @@ def consumer(queue_in, pixel_mask, backend_queue, fps, to_print = False, confide
                 # Getting ids
                 filtered_objects, history, next_id = assign_ids(filtered_objects, history, next_id)
                 
+                #filtered_objects = update_objects_coordinates(filtered_objects, drone_dict)
+
                 annotated_frame = annotate_img_opencv(frame, filtered_objects, pixel_mask, drone_dict, frames)
-                #print(current_frame_objects)
 
                 # Sendiing
                 send_to_tak(drone_dict, filtered_objects)
@@ -644,13 +818,52 @@ def assign_ids(current_detections, history, next_id):
     # Return the current frame objects with their assigned IDs in the required list format
     return list(current_frame_objects.values()), history, next_id
 
-async def main(objects_history):
-    print("dddd")
+
+async def websocket_server(objects_history):
     async with websockets.serve(lambda ws, path: handle_message(ws, objects_history), "", 12001):
-        await asyncio.Future()  # run forever
+        await asyncio.Future()
+
+async def main(objects_history, tak_history, tak_frequency):
+    """
+    Initiating websockets
+    """
+    print("initiating")
+    
+    # # TAK init
+    # print("TAK initiation...")
+    # config = getConfig()
+    # clitool = pytak.CLITool(config)
+    # await clitool.setup()
+    # print("TAK functions initiated")
+
+    # # Create an instance of MySender for each set of test data
+    # tasks = []
+    # for object_type, lat, lon, h in test_data:
+    #     sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
+    #     tasks.append(sender.run())
+
+    # # Start all tasks.
+    # await asyncio.gather(*tasks)
+    
+    websocket_task = websocket_server(objects_history)
+    tak_message_task = handle_tak_message(tak_history, tak_frequency)
+
+    # Use asyncio.gather to run both tasks concurrently
+    await asyncio.gather(websocket_task, tak_message_task)
+
+    # Websocket to frontend
+    #async with websockets.serve(lambda ws, path: handle_message(ws, objects_history), "", 12001):
+    #    await asyncio.Future() 
+
+    print("fontend and tak initiated")
+    #await asyncio.run(handle_tak_message(tak_history))
+    
+    # Websocket to TAK server
+    #async with websockets.serve(lambda hist: handle_tak_message(ws, tak_history)):
+    #    await asyncio.Future() 
 
     # Run the WebSocket server
-    await websocket_server(objects_history, lock)
+    #await websocket_server(objects_history, lock)
 
 if __name__ == "__main__":
     """
@@ -663,11 +876,15 @@ if __name__ == "__main__":
 
     # Data to frontend
     max_history_seconds = 5 # seconds
-
     max_history_size = max_history_seconds * fps
 
+    # Frequency TAK server updates (times per second)
+    tak_frequency = 2
+    tak_history_length = int(fps / tak_frequency)
+
     manager = Manager()
-    objects_history = manager.list(deque(maxlen=max_history_size))
+    objects_history = manager.list()
+    tak_history = manager.list()
     #objects_history = deque(maxlen=max_history_size)
 
     queue_read2aggr = Queue()
@@ -730,7 +947,7 @@ if __name__ == "__main__":
     processes.append(consumer_process)
 
     backend_process = Process(target=backend, name="backend",
-        args=(queue_cons2backend, objects_history))
+        args=(queue_cons2backend, objects_history, tak_history, max_history_size, tak_history_length))
     processes.append(backend_process)
 
     print("starting processes...")
@@ -738,13 +955,13 @@ if __name__ == "__main__":
         process.start()
         print(f"started {process}")
 
+    asyncio.run(main(objects_history, tak_history, tak_frequency))
+
     try:
         for process in processes:
             process.join()
             print(f"finished {process}")
 
-        asyncio.run(main(objects_history))
-        
     except KeyboardInterrupt:
         print("main","ignoring keyboard interrupt")
     except RuntimeError as E:
