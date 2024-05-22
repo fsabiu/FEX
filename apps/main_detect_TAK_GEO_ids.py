@@ -233,8 +233,22 @@ def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, f, img_width, img
     return new_lat, new_lon
 
 def send_to_tak(drone_dict, filtered_objects):
+    """
+    if not None, drone_dict will contain
+    drone_dict["ts"] = value(klvdata.misb0601.PrecisionTimeStamp) 
+    drone_dict["lat_dron"] = value(klvdata.misb0601.SensorLatitude) #52.2296756
+    drone_dict["lon_dron"] = value(klvdata.misb0601.SensorLongitude) #21.0122287
+    drone_dict["h_dron"] = value(klvdata.misb0601.SensorTrueAltitude) #100  # Drone altitude in meters
+    drone_dict["pitch"] = value(klvdata.misb0601.PlatformPitchAngle) + value(klvdata.misb0601.SensorRelativeElevationAngle) #-10  # Camera pitch in degrees
+    drone_dict["yaw"] = value(klvdata.misb0601.PlatformHeadingAngle) + value(klvdata.misb0601.SensorRelativeAzimuthAngle) #45  # Azimuth in degrees
+    drone_dict["roll"] = value(klvdata.misb0601.PlatformRollAngle) + value(klvdata.misb0601.SensorRelativeRollAngle) #0  # Roll in degrees
+    drone_dict["fov_h"] = value(klvdata.misb0601.SensorHorizontalFieldOfView) # Camera field of view horizontal
+    drone_dict["fov_v"] = value(klvdata.misb0601.SensorVerticalFieldOfView) # Camera field of view vertical
+    """
     if drone_dict is None:
         return
+    else:
+        print(drone_dict)
     # print("sent to TAK")
 
 def create_writer(rtsp_url,width,height,fps):
@@ -275,17 +289,17 @@ def create_writer_hls(hls_url,width,height,fps):
 
 def read_drone_info(): # TO DO
     drone_dict = {}
-    drone_dict["lat_dron"] = 52.2296756
-    drone_dict["lon_dron"] = 21.0122287
-    drone_dict["h_dron"] = 100  # Drone altitude in meters
-    drone_dict["pitch"] = -10  # Camera pitch in degrees
-    drone_dict["yaw"] = 45  # Azimuth in degrees
-    drone_dict["roll"] = 0  # Roll in degrees
-    drone_dict["f"] = 35  # Camera focal length in mm
-    drone_dict["img_width"] = 4000  # Image width in pixels
-    drone_dict["img_height"] = 3000  # Image height in pixels
-    drone_dict["x_pixel"] = 2000  # x-coordinate of the pixel
-    drone_dict["y_pixel"] = 1500  # y-coordinate of the pixel
+    drone_dict["lat_dron"] -1
+    drone_dict["lon_dron"] -1
+    drone_dict["h_dron"] -1  # Drone altitude in meters
+    drone_dict["pitch"] -1  # Camera pitch in degrees
+    drone_dict["yaw"] -1  # Azimuth in degrees
+    drone_dict["roll"] -1  # Roll in degrees
+    drone_dict["f"] -1  # Camera focal length in mm
+    drone_dict["img_width"] -1  # Image width in pixels
+    drone_dict["img_height"] -1  # Image height in pixels
+    drone_dict["x_pixel"] -1  # x-coordinate of the pixel
+    drone_dict["y_pixel"] -1  # y-coordinate of the pixel
 
     return drone_dict
 
@@ -316,12 +330,6 @@ def fromKLV(metadata_set):
     drone_dict["pitch"] = value(klvdata.misb0601.PlatformPitchAngle) + value(klvdata.misb0601.SensorRelativeElevationAngle) #-10  # Camera pitch in degrees
     drone_dict["yaw"] = value(klvdata.misb0601.PlatformHeadingAngle) + value(klvdata.misb0601.SensorRelativeAzimuthAngle) #45  # Azimuth in degrees
     drone_dict["roll"] = value(klvdata.misb0601.PlatformRollAngle) + value(klvdata.misb0601.SensorRelativeRollAngle) #0  # Roll in degrees
-
-    # drone_dict["f"] = #35  # Camera focal length in mm
-    # drone_dict["img_width"] = 4000  # Image width in pixels
-    # drone_dict["img_height"] = 3000  # Image height in pixels
-    # drone_dict["x_pixel"] = 2000  # x-coordinate of the pixel
-    # drone_dict["y_pixel"] = 1500  # y-coordinate of the pixel
 
     drone_dict["fov_h"] = value(klvdata.misb0601.SensorHorizontalFieldOfView) # Camera field of view horizontal
     drone_dict["fov_v"] = value(klvdata.misb0601.SensorVerticalFieldOfView) # Camera field of view vertical
