@@ -61,8 +61,8 @@ def process_directory(input_image_dir, input_annotation_dir, output_image_dir, o
             flip_image_and_update_yolo(image_path, annotation_path, output_image_path, output_annotation_path)
 
 # Define input and output directories
-input_image_dir = '/home/ubuntu/shared/data/Day1_sample_data/train/images'
-input_annotation_dir = '/home/ubuntu/shared/data/Day1_sample_data/train/labels'
+input_image_dir = '/home/ubuntu/shared/data/Day2_sample_data/train/images'
+input_annotation_dir = '/home/ubuntu/shared/data/Day2_sample_data/train/labels'
 output_image_dir = input_image_dir
 output_annotation_dir = input_annotation_dir
 
