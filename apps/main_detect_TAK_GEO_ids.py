@@ -247,7 +247,7 @@ def create_writer(rtsp_url,width,height,fps):
     out = cv2.VideoWriter('appsrc ! videoconvert' + \
         # ' !videorate max-rate=4 ' + \
         ' ! video/x-raw,format=I420' + \
-        ' ! x264enc  speed-preset=medium tune=zerolatency bitrate=4000' \
+        ' ! x264enc  speed-preset=medium tune=zerolatency bitrate=3000' \
         ' ! video/x-h264,profile=baseline' + \
         ' ! rtspclientsink location=' + rtsp_url,
         cv2.CAP_GSTREAMER, fourcc, fps, (width, height), True)
@@ -634,7 +634,7 @@ if __name__ == "__main__":
             "BMP-1": 0.3,
             "Rosomak": 0.3,
             "T72": 0.3,
-            "car": 0.99,
+            "car": 0.7,
             "military vehicle": 0.6,
             "people": 0.7,
             "soldier": 0.6,
