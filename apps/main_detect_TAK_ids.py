@@ -65,7 +65,7 @@ def annotate_img_opencv(image, annotations, pixel_mask):
         (0, 0, 255)
     ]
     masks = [
-        [
+        [ # izquierda
             [(50, 540), (100, 540), (100, 560), (50,560)],
             [(50, 470), (100, 470), (100, 490), (50,490)],
             [(55, 395), (100, 395), (100, 415), (55,415)],
@@ -80,6 +80,30 @@ def annotate_img_opencv(image, annotations, pixel_mask):
             [(815, 40), (845, 40), (845, 55), (815,55)],
             [(920, 40), (965, 40), (965, 55), (920,55)],
             [(700, 80), (735, 80), (735, 95), (700,95)]
+        ],
+        [ # cajas abajo
+            [(42, 585), (275, 585), (275, 710), (42,710)],
+            [(275,710), (275, 648), (425, 648), (425, 710)],
+            [(585, 585), (845, 585), (845, 710), (585, 710)],
+            [(845, 710), (845, 675), (950, 675), (950, 710)],
+            [(1050, 602), (1215, 602), (1215, 710), (1050, 710)]
+        ],
+        [
+            [(50, 540), (100, 540), (100, 560), (50,560)],
+            [(50, 470), (100, 470), (100, 490), (50,490)],
+            [(55, 395), (100, 395), (100, 415), (55,415)],
+            [(55, 325), (100, 325), (100, 345), (55,345)],
+            [(55, 255), (100, 255), (100, 270), (55,270)],
+            [(65, 215), (220, 215), (220, 235), (65,235)],
+            [(65, 105), (175, 105), (175, 125), (65,125)],
+            [(65, 75), (175, 75), (175, 95), (65,95)],
+            [(460, 40), (515, 40), (515, 55), (460,55)],
+            [(585, 40), (630, 40), (630, 55), (585,55)],
+            [(700, 40), (735, 40), (735, 55), (700,55)],
+            [(815, 40), (845, 40), (845, 55), (815,55)],
+            [(920, 40), (965, 40), (965, 55), (920,55)],
+            [(700, 80), (735, 80), (735, 95), (700,95)],
+            [(460, 30), (965, 30), (965, 105), (460,105)]
         ]
     ]
     # Iterate through each annotation
@@ -89,8 +113,12 @@ def annotate_img_opencv(image, annotations, pixel_mask):
         if "id" in annotation:
             ob_id = annotation["id"]
         tag_name = annotation.get("tagName")
+        if tag_name == "car":
+            tag_name = "vehicle"
+        if tag_name == "hidden object":
+            tag_name = "vehicle"
         confidence = round(float(annotation.get("confidence")), 2)
-        text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}"
+        text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}, {annotation['model_id']}"
         
         x1 = int(bounds["x1"])
         y1 = int(bounds["y1"])
@@ -472,7 +500,7 @@ if __name__ == "__main__":
     """
 
     n_producers = 2
-    pixel_mask = 0 # 0, 1 or 2
+    pixel_mask = 1 # 0, 1 or 2
 
     queue_read2aggr = Queue()
     queues_read2pred = [Queue() for _ in range(n_producers)]
@@ -488,19 +516,30 @@ if __name__ == "__main__":
 
     yolo_paths = [
         "../apps/models/yolo_VDTMLT_1024p.pt",
-        "../apps/models/yolo_sample_data_day1.pt",
+        "../apps/models/day1day2.pt",
     ]
     yolo_confidence_filters = [
-        dict(pedestrian=0.7, car=0.80, van=0.65, truck=0.6, military_tank=0.75, military_truck=0.6, military_vehicle=0.6),
+        {
+            "pedestrian": 0.7, 
+            "car": 0.80, 
+            "van": 0.65,
+            "truck": 0.6, 
+            "military_tank": 0.65, 
+            "military_truck": 0.5, 
+            "military_vehicle": 0.5,  
+            "military vehicle": 0.5
+        },
         #dict(military_tank=0.05, military_truck=0.05),
-        {"BMP-1": 0.6,
-        "Rosomak": 0.6,
-        "T72": 0.6,
-        "car": 0.6,
-        "military_vehicle": 0.6,
-        "people": 0.6,
-        "soldier": 0.6,
-        "trench": 0.5
+        {
+            "BMP-1": 0.3,
+            "Rosomak": 0.3,
+            "T72": 0.3,
+            "car": 0.99,
+            "military vehicle": 0.6,
+            "people": 0.7,
+            "soldier": 0.6,
+            "trench": 0.7,
+            "hidden object": 0.75
         }
     ]
     

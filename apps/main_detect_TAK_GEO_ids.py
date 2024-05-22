@@ -19,6 +19,11 @@ import klvdata
 
 KLV_AV_FIX = b'\x06\x0e+4\x02'
 
+def draw_str(dst, target, s):
+    x, y = target
+    cv2.putText(dst, s, (x+1, y+1), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 0), thickness = 2, lineType=cv2.LINE_AA)
+    cv2.putText(dst, s, (x, y), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 255), lineType=cv2.LINE_AA)
+
 def is_object_in_polygons(bounds, polygons):
     """
     Check if the object identified by bounds is included in any of the polygons.
@@ -53,7 +58,7 @@ def is_object_in_polygons(bounds, polygons):
     # If no polygons contain the entire bounding box, return False
     return False
 
-def annotate_img_opencv(image, annotations, pixel_mask):
+def annotate_img_opencv(image, annotations, pixel_mask, telemetry, frame_no):
     """
     Annotate the image with bounding boxes and labels.
 
@@ -70,7 +75,7 @@ def annotate_img_opencv(image, annotations, pixel_mask):
         (0, 0, 255)
     ]
     masks = [
-        [
+        [ # izquierda
             [(50, 540), (100, 540), (100, 560), (50,560)],
             [(50, 470), (100, 470), (100, 490), (50,490)],
             [(55, 395), (100, 395), (100, 415), (55,415)],
@@ -85,8 +90,44 @@ def annotate_img_opencv(image, annotations, pixel_mask):
             [(815, 40), (845, 40), (845, 55), (815,55)],
             [(920, 40), (965, 40), (965, 55), (920,55)],
             [(700, 80), (735, 80), (735, 95), (700,95)]
+        ],
+        [
+            [(42, 585), (275, 585), (275, 710), (42,710)],
+            [(275,710), (275, 648), (425, 648), (425, 710)],
+            [(585, 585), (845, 585), (845, 710), (585, 710)],
+            [(845, 710), (845, 675), (950, 675), (950, 710)],
+            [(1050, 602), (1215, 602), (1215, 710), (1050, 710)]
+        ],
+        [
+            [(50, 540), (100, 540), (100, 560), (50,560)],
+            [(50, 470), (100, 470), (100, 490), (50,490)],
+            [(55, 395), (100, 395), (100, 415), (55,415)],
+            [(55, 325), (100, 325), (100, 345), (55,345)],
+            [(55, 255), (100, 255), (100, 270), (55,270)],
+            [(65, 215), (220, 215), (220, 235), (65,235)],
+            [(65, 105), (175, 105), (175, 125), (65,125)],
+            [(65, 75), (175, 75), (175, 95), (65,95)],
+            [(460, 40), (515, 40), (515, 55), (460,55)],
+            [(585, 40), (630, 40), (630, 55), (585,55)],
+            [(700, 40), (735, 40), (735, 55), (700,55)],
+            [(815, 40), (845, 40), (845, 55), (815,55)],
+            [(920, 40), (965, 40), (965, 55), (920,55)],
+            [(700, 80), (735, 80), (735, 95), (700,95)],
+            [(460, 30), (965, 30), (965, 105), (460,105)]
         ]
     ]
+
+    if image is None:
+        print("no image")
+        return image
+    
+    draw_str(image, (20, 20), f"{frame_no}")
+
+    if telemetry is not None:
+        draw_str(image, (20, 40), f"lat: {telemetry['lat_dron']}")
+        draw_str(image, (20, 60), f"lon: {telemetry['lon_dron']}")
+        draw_str(image, (20, 80), f"alt: {telemetry['h_dron']}")
+    
     # Iterate through each annotation
     for annotation in annotations:
         bounds = annotation["bounds"]
@@ -94,8 +135,12 @@ def annotate_img_opencv(image, annotations, pixel_mask):
         if "id" in annotation:
             ob_id = annotation["id"]
         tag_name = annotation.get("tagName")
+        if tag_name == "car":
+            tag_name = "vehicle"
+        if tag_name == "hidden object":
+            tag_name = "vehicle"
         confidence = round(float(annotation.get("confidence")), 2)
-        text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}"
+        text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}, {annotation['model_id']}"
         
         x1 = int(bounds["x1"])
         y1 = int(bounds["y1"])
@@ -188,7 +233,9 @@ def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, f, img_width, img
     return new_lat, new_lon
 
 def send_to_tak(drone_dict, filtered_objects):
-    print("Sending to TAK")
+    if drone_dict is None:
+        return
+    # print("sent to TAK")
 
 def create_writer(rtsp_url,width,height,fps):
      # Define VideoWriter properties
@@ -200,7 +247,7 @@ def create_writer(rtsp_url,width,height,fps):
     out = cv2.VideoWriter('appsrc ! videoconvert' + \
         # ' !videorate max-rate=4 ' + \
         ' ! video/x-raw,format=I420' + \
-        ' ! x264enc  speed-preset=medium tune=zerolatency bitrate=2000' \
+        ' ! x264enc  speed-preset=medium tune=zerolatency bitrate=4000' \
         ' ! video/x-h264,profile=baseline' + \
         ' ! rtspclientsink location=' + rtsp_url,
         cv2.CAP_GSTREAMER, fourcc, fps, (width, height), True)
@@ -282,23 +329,36 @@ def fromKLV(metadata_set):
     return drone_dict
 
 def read_frames(source, aggr_queue, queues, to_print=False):
+    print("starting read_frames")
     while True:
         try:
             if to_print:
                 print("read_frames is opening the source")
 
+            av.logging.set_level(3)
             with av.open(source, 
                     mode='r', 
                     options={
                         'rtsp_transport': 'tcp'
-                    }) as container:
+                    },
+                    timeout=5) as container:
                 pts_offset = None
+                pts_telemetry = None
+                pts_last = None
                 start_time = None
                 klv_fix = KLV_AV_FIX
 
                 drone_dict = None
 
-                for packet in container.demux():
+                indexes = []
+                if len(container.streams.video) > 0:
+                    indexes.append(container.streams.video[0].index)
+                if len(container.streams.data) > 0:
+                    indexes.append(container.streams.data[0].index)
+
+                print(f"using stream indexes {indexes}")
+
+                for packet in container.demux(indexes):
                     if packet.size == 0:
                         continue
                     if pts_offset is None:
@@ -312,6 +372,7 @@ def read_frames(source, aggr_queue, queues, to_print=False):
                                 klv_fix = b''
                             elif isinstance(block, klvdata.misb0601.UASLocalMetadataSet):
                                 drone_dict = fromKLV(block)
+                                pts_telemetry = packet.pts if packet.pts else pts_last
                             else:
                                 print("other telemetry data")
                                 dumpKLV([block])
@@ -322,12 +383,17 @@ def read_frames(source, aggr_queue, queues, to_print=False):
                         start_time = time.time()
                     if packet.stream.type != 'video':
                         continue
+                    
+                    if pts_telemetry is not None and packet.pts - pts_telemetry > 90000: # 1 second of MPEG-TS
+                        drone_dict = None
 
                     for frame in frames:
                         img = frame.to_ndarray(format='bgr24')
                         aggr_queue.put((img, drone_dict))
                         for queue in queues:
                             queue.put(img)
+                    
+                    pts_last = packet.pts
 
             print("container safely closed, will try reopening in 1 second")
             time.sleep(1)
@@ -344,6 +410,7 @@ def read_frames(source, aggr_queue, queues, to_print=False):
             time.sleep(5)
 
 def predictor(model_path, queue_in, queue_out, p_id):
+    print(f"starting predictor#{p_id}")
     try:
         model = YOLO(model_path)
         while True:
@@ -354,7 +421,7 @@ def predictor(model_path, queue_in, queue_out, p_id):
             end = time.time()
             res_dict = utils_yolo.get_result_dict(model, results[0])
             res_dict["yolo_producer"] = p_id
-            print(f"elapsed {end-start}")
+            # print(f"elapsed {end-start}")
 
 
 
@@ -368,6 +435,7 @@ def predictor(model_path, queue_in, queue_out, p_id):
     print("predictor", p_id, "completed")
 
 def aggregator(frame_queue, queues_in, queue_out, filter_confidence_filters=None):
+    print("starting aggregator")
     try:
         while True:
             frame, drone_dict = frame_queue.get()
@@ -406,6 +474,7 @@ def save_image_with_timestamp(image):
     print(f"Image saved at: {file_path}")
 
 def consumer(queue_in, pixel_mask, to_print = False, confidence_filters = None):
+    print("starting consumer")
     try:
         rtsp_url = "rtsp://localhost:8554/mystream"
         hls_url = "rtsp://localhost:8888/mystream"
@@ -443,7 +512,7 @@ def consumer(queue_in, pixel_mask, to_print = False, confidence_filters = None):
                 # Getting ids
                 filtered_objects, history, next_id = assign_ids(filtered_objects, history, next_id)
                 
-                annotated_frame = annotate_img_opencv(frame, filtered_objects, pixel_mask)
+                annotated_frame = annotate_img_opencv(frame, filtered_objects, pixel_mask, drone_dict, frames)
                 #print(current_frame_objects)
 
                 # Sendiing
@@ -452,6 +521,7 @@ def consumer(queue_in, pixel_mask, to_print = False, confidence_filters = None):
 
                 if frames % 300 == 0 :  
                     ts = time.time()
+                    print(f"{ts} frame#{frames}")
 
 
     except KeyboardInterrupt:
@@ -541,51 +611,66 @@ if __name__ == "__main__":
     processes = []
 
     stream_url = sys.argv[1]
-    read_frames_process = Process(target=read_frames, args=(stream_url, queue_read2aggr, queues_read2pred))
+    read_frames_process = Process(target=read_frames, name="read_frames", args=(stream_url, queue_read2aggr, queues_read2pred))
     processes.append(read_frames_process)
 
     yolo_paths = [
         "../apps/models/yolo_VDTMLT_1024p.pt",
-        "../apps/models/yolo_sample_data_day1.pt",
+        "../apps/models/day1day2.pt",
     ]
     yolo_confidence_filters = [
-        dict(pedestrian=0.7, car=0.80, van=0.65, truck=0.6, military_tank=0.75, military_truck=0.6, military_vehicle=0.6),
+        {
+            "pedestrian": 0.7, 
+            "car": 0.80, 
+            "van": 0.65,
+            "truck": 0.6, 
+            "military_tank": 0.65, 
+            "military_truck": 0.5, 
+            "military_vehicle": 0.5,  
+            "military vehicle": 0.5
+        },
         #dict(military_tank=0.05, military_truck=0.05),
-        {"BMP-1": 0.6,
-        "Rosomak": 0.6,
-        "T72": 0.6,
-        "car": 0.6,
-        "military_vehicle": 0.6,
-        "people": 0.6,
-        "soldier": 0.6,
-        "trench": 0.5
+        {
+            "BMP-1": 0.3,
+            "Rosomak": 0.3,
+            "T72": 0.3,
+            "car": 0.99,
+            "military vehicle": 0.6,
+            "people": 0.7,
+            "soldier": 0.6,
+            "trench": 0.7,
+            "hidden object": 0.75
         }
     ]
     
     predictor_procesesses = [
         Process(
             target=predictor,
+            name=f"predictor_{i}",
             args=(yolo_paths[i], queues_read2pred[i], queues_pred2aggr[i], i)
         ) for i in range(n_producers)
     ]
     processes += predictor_procesesses
 
-    aggregator_process = Process(target=aggregator,
+    aggregator_process = Process(target=aggregator, name="aggregator",
         args=(queue_read2aggr, queues_pred2aggr, queue_aggr2cons))
     processes.append(aggregator_process)
 
-    consumer_process = Process(target=consumer, 
+    consumer_process = Process(target=consumer, name="consumer",
         args=(queue_aggr2cons, pixel_mask, False, yolo_confidence_filters))
     processes.append(consumer_process)
 
+    print("starting processes...")
     for process in processes:
         process.start()
+        print(f"started {process}")
 
     try:
         for process in processes:
             process.join()
+            print(f"finished {process}")
     except KeyboardInterrupt:
-        pass
+        print("main","ignoring keyboard interrupt")
     except RuntimeError as E:
         print(E)
     print("main", "completed")
