@@ -2,4 +2,8 @@
 ultralytics
 klvdata
 av
+websockets
+geojson
+pytak
+cryptography
 # sudo apt install gstreamer1.0-rtsp

@@ -196,98 +196,6 @@ def annotate_img_opencv(image, annotations, pixel_mask, telemetry, frame_no):
     
     return image
 
-def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, f, img_width, img_height, x_pixel, y_pixel):
-    # Earth parameters
-    R_EARTH = 6371e3  # Radius of the Earth in meters
-    
-    # Convert degrees to radians
-    pitch = np.radians(pitch)
-    yaw = np.radians(yaw)
-    roll = np.radians(roll)
-    
-    # Convert pixels to camera coordinates
-    Z_cam = h_dron
-    X_cam = (x_pixel - img_width / 2) * Z_cam / f
-    Y_cam = (y_pixel - img_height / 2) * Z_cam / f
-    
-    # Rotation matrices
-    R_yaw = np.array([
-        [np.cos(yaw), -np.sin(yaw), 0],
-        [np.sin(yaw), np.cos(yaw), 0],
-        [0, 0, 1]
-    ])
-    
-    R_pitch = np.array([
-        [np.cos(pitch), 0, np.sin(pitch)],
-        [0, 1, 0],
-        [-np.sin(pitch), 0, np.cos(pitch)]
-    ])
-    
-    R_roll = np.array([
-        [1, 0, 0],
-        [0, np.cos(roll), -np.sin(roll)],
-        [0, np.sin(roll), np.cos(roll)]
-    ])
-    
-    # Combined rotation matrix
-    R = R_yaw @ R_pitch @ R_roll
-    
-    # Transform coordinates from camera frame to global frame
-    cam_coords = np.array([X_cam, Y_cam, Z_cam])
-    global_coords = R @ cam_coords
-    
-    # Convert global coordinates to GPS deltas
-    d_lat = global_coords[1] / R_EARTH * (180 / np.pi)
-    d_lon = global_coords[0] / (R_EARTH * np.cos(np.radians(lat_dron))) * (180 / np.pi)
-    
-    # New GPS coordinates
-    new_lat = lat_dron + d_lat
-    new_lon = lon_dron + d_lon
-    
-    return new_lat, new_lon
-
-def send_to_tak(drone_dict, filtered_objects):
-    #print(filtered_objects)
-    """
-    if not None, drone_dict will contain
-    drone_dict["ts"] = value(klvdata.misb0601.PrecisionTimeStamp) 
-    drone_dict["lat_dron"] = value(klvdata.misb0601.SensorLatitude) #52.2296756
-    drone_dict["lon_dron"] = value(klvdata.misb0601.SensorLongitude) #21.0122287
-    drone_dict["h_dron"] = value(klvdata.misb0601.SensorTrueAltitude) #100  # Drone altitude in meters
-    drone_dict["pitch"] = value(klvdata.misb0601.PlatformPitchAngle) + value(klvdata.misb0601.SensorRelativeElevationAngle) #-10  # Camera pitch in degrees
-    drone_dict["yaw"] = value(klvdata.misb0601.PlatformHeadingAngle) + value(klvdata.misb0601.SensorRelativeAzimuthAngle) #45  # Azimuth in degrees
-    drone_dict["roll"] = value(klvdata.misb0601.PlatformRollAngle) + value(klvdata.misb0601.SensorRelativeRollAngle) #0  # Roll in degrees
-    drone_dict["fov_h"] = value(klvdata.misb0601.SensorHorizontalFieldOfView) # Camera field of view horizontal
-    drone_dict["fov_v"] = value(klvdata.misb0601.SensorVerticalFieldOfView) # Camera field of view vertical
-
-    filtered_objects is a list of dictionaries like:
-    [
-        {
-            'bounds': 
-                {
-                    'x1': 1806.9841289520264, 
-                    'y1': 420.79685255885124, 
-                    'x2': 1919.9573993682861, 
-                    'y2': 420.79685255885124, 
-                    'x3': 1919.9573993682861, 
-                    'y3': 526.9543857872486, 
-                    'x4': 1806.9841289520264, 
-                    'y4': 526.9543857872486
-                }, 
-            'confidence': 0.8897793292999268, 
-            'tagName': 'car', 
-            'model_id': 1, 
-            'id': 4
-        }
-    ]
-    
-    """
-    if drone_dict is None:
-        return
-    else:
-        print(drone_dict)
-    # print("sent to TAK")
-
 def create_writer(rtsp_url,width,height,fps):
      # Define VideoWriter properties
     fourcc = cv2.VideoWriter_fourcc(*'X264')  # Codec for the video stream
@@ -526,7 +434,7 @@ async def handle_message(websocket, objects_history):
         print("Connection closed")
 
 
-def object2COT(object) :
+def object2COT(obj) :
     cot_types = {
         "pedestrian": "a-h-G",
         "car": "a-f-G-E-V-C",
@@ -535,22 +443,24 @@ def object2COT(object) :
         "military_tank": "a-f-G-U-C-T",
         "military_truck": "a-f-G-U-L-T",
         "military_vehicle": "a-f-G-U-C-V",
+        "military vehicle": "a-f-G-U-C-V",
         "BMP-1": "a-f-G-U-C-V-B",
         "Rosomak": "a-f-G-U-C-V-R",
         "T72": "a-f-G-U-C-T-T72",
         "people": "a-h-G",
         "soldier": "a-f-G-U-C-I",
         "trench": "a-f-G-U-C-F-T",
-        "hidden_object": "a-f-G-E-O-H"
+        "hidden_object": "a-f-G-E-O-H",
+        "hidden object": "a-f-G-E-O-H"
     }    
-    return cot_types[object]
+    return cot_types[obj]
 
-def gen_cot_detection(object,lat,lon,h):
+def gen_cot_detection(obj,lat,lon,h):
     """Generate CoT Event."""
     root = ET.Element("event")
     root.set("version", "2.0")
-    root.set("type", object2COT(object))  # insert your type of marker
-    root.set("uid", object)
+    root.set("type", object2COT(obj))  # insert your type of marker
+    root.set("uid", ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)))
     root.set("how", "a")
     root.set("time", pytak.cot_time())
     root.set("start", pytak.cot_time())
@@ -576,9 +486,9 @@ class MySender(pytak.QueueWorker):
     From there it adds the COT Events to a queue for TX to a COT_URL.
     """
 
-    def __init__(self, tx_queue, config, object, lat, lon, h):
+    def __init__(self, tx_queue, config, obj, lat, lon, h):
         super().__init__(tx_queue, config)
-        self.object = object
+        self.object = obj
         self.lat = lat
         self.lon = lon
         self.h = h
@@ -594,10 +504,10 @@ class MySender(pytak.QueueWorker):
         self._logger.info("Sending:\n%s\n", data.decode())
         await self.handle_data(data)
 
-def getConfig() :
+def getConfig(cot_url) :
     config = ConfigParser()
-    config["mycottool"] = {"COT_URL": "tls://158.101.179.114:8089", 
-                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/oracle1.p12",
+    config["mycottool"] = {"COT_URL": cot_url, 
+                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/admin.p12",
                            "PYTAK_TLS_CLIENT_PASSWORD" : "atakatak",
                            "PYTAK_TLS_DONT_VERIFY" : 1,
                             "PYTAK_TLS_DONT_CHECK_HOSTNAME": 1
@@ -605,9 +515,12 @@ def getConfig() :
     config = config["mycottool"]
     return config
 
-async def handle_tak_message(tak_history, tak_frequency):
+import secrets
+import string
+
+async def handle_tak_message(cot_url, tak_history, tak_frequency):
     
-    config = getConfig()
+    config = getConfig(cot_url)
     clitool = pytak.CLITool(config)
     await clitool.setup()
 
@@ -615,29 +528,22 @@ async def handle_tak_message(tak_history, tak_frequency):
         recent_objects_list = get_most_recent_versions(tak_history)
         print("Object list")
         print(len(recent_objects_list))
+        #sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
+        #clitool.add_tasks(set([sender]))
+        # Start all tasks.
+        #await clitool.run()
+        tasks = []
+        for obj in recent_objects_list:
+            sender = MySender(clitool.tx_queue, config, obj["tagName"], "50.734347105368215", "21.948178672207604", "100")
+            #clitool.add_tasks(set([sender]))
+            tasks.append(sender.run())
+            # Start all tasks.
+            #await clitool.run()
+            print("Sent")
+
+        await asyncio.gather(*tasks)
+
         await asyncio.sleep(1/tak_frequency)
-    #sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
-    #clitool.add_tasks(set([sender]))
-    # Start all tasks.
-    #await clitool.run()
-
-    print("done")
-    
-    # async for message in websocket:
-    #     try:
-    #         data = json.loads(message)
-    #     raise RuntimeError:
-    #         print("Invalid JSON data received")
-
-    #     if data.get("action") == "add_point":
-    #         # Add or update a point
-            
-    #         feature_collection = FeatureCollection(geojson_objs)
-    #         await websocket.send(geojson.dumps(feature_collection))
-    #         # lat = data.get("latitude")
-    #         # lon = data.get("longitude")
-    #         # properties = data.get("properties", {})
-    #         # feature_id = properties.get("id")
             
 
 
@@ -697,7 +603,113 @@ def save_image_with_timestamp(image):
     cv2.imwrite(file_path, image)
     print(f"Image saved at: {file_path}")
 
-def consumer(queue_in, pixel_mask, backend_queue, fps, to_print = False, confidence_filters = None):
+
+
+def update_objects_coordinates(filtered_objects, drone_dict, frame_h, frame_w, camera_f):
+    """
+    drone_dict["ts"] 
+    drone_dict["lat_dron"] SensorLatitude
+    drone_dict["lon_dron"] SensorLongitude
+    drone_dict["h_dron"] SensorTrueAltitude
+    drone_dict["pitch"] 
+    drone_dict["yaw"] 
+    drone_dict["roll"] 
+    drone_dict["fov_h"] SensorHorizontalFieldOfView
+    drone_dict["fov_v"] SensorVerticalFieldOfView
+    """
+    drone_info = ["ts", "lat_dron", "lon_dron", "h_dron", "pitch", "yaw", "roll", "fov_h", "fov_v"]
+
+    if drone_dict is not None:
+        # check fields
+        missing_info = []
+        for info in drone_info:
+            if info not in drone_dict:
+                missing_info.append(info)
+
+        if len(missing_info)>0:
+            for info in missing_info:
+                print(f"Missing drone info: {info}")
+        else:
+            for obj in filtered_objects:
+                x_pixel, y_pixel = calculate_central_point(obj)
+                obj_lat, obj_lon = pixel_to_gps(drone_info["lat_dron"], drone_info["lon_dron"], 
+                    drone_info["h_dron"], drone_info["pitch"], drone_info["yaw"], 
+                    drone_info["roll"], camera_f, frame_w, frame_h, x_pixel, y_pixel)
+                obj["lat"] = obj_lat
+                obj["lon"] = obj_lon
+    else:
+        for obj in filtered_objects:
+            obj["lat"] = "50.734347105368215"
+            obj["lon"] = "21.948178672207604"
+    
+    return filtered_objects
+
+def calculate_central_point(obj):
+    # Extract coordinates
+    x1, y1 = obj[bounds]['x1'], obj[bounds]['y1']
+    x2, y2 = obj[bounds]['x2'], obj[bounds]['y2']
+    x3, y3 = obj[bounds]['x3'], obj[bounds]['y3']
+    x4, y4 = obj[bounds]['x4'], obj[bounds]['y4']
+    
+    # Calculate average x-coordinate
+    x = (x1 + x2 + x3 + x4) / 4
+    
+    # Calculate average y-coordinate
+    y = (y1 + y2 + y3 + y4) / 4
+    
+    return x, y
+
+def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, f, img_width, img_height, x_pixel, y_pixel):
+    # Earth parameters
+    R_EARTH = 6371e3  # Radius of the Earth in meters
+    
+    # Convert degrees to radians
+    pitch = np.radians(pitch)
+    yaw = np.radians(yaw)
+    roll = np.radians(roll)
+    
+    # Convert pixels to camera coordinates
+    Z_cam = h_dron
+    X_cam = (x_pixel - img_width / 2) * Z_cam / f
+    Y_cam = (y_pixel - img_height / 2) * Z_cam / f
+    
+    # Rotation matrices
+    R_yaw = np.array([
+        [np.cos(yaw), -np.sin(yaw), 0],
+        [np.sin(yaw), np.cos(yaw), 0],
+        [0, 0, 1]
+    ])
+    
+    R_pitch = np.array([
+        [np.cos(pitch), 0, np.sin(pitch)],
+        [0, 1, 0],
+        [-np.sin(pitch), 0, np.cos(pitch)]
+    ])
+    
+    R_roll = np.array([
+        [1, 0, 0],
+        [0, np.cos(roll), -np.sin(roll)],
+        [0, np.sin(roll), np.cos(roll)]
+    ])
+    
+    # Combined rotation matrix
+    R = R_yaw @ R_pitch @ R_roll
+    
+    # Transform coordinates from camera frame to global frame
+    cam_coords = np.array([X_cam, Y_cam, Z_cam])
+    global_coords = R @ cam_coords
+    
+    # Convert global coordinates to GPS deltas
+    d_lat = global_coords[1] / R_EARTH * (180 / np.pi)
+    d_lon = global_coords[0] / (R_EARTH * np.cos(np.radians(lat_dron))) * (180 / np.pi)
+    
+    # New GPS coordinates
+    new_lat = lat_dron + d_lat
+    new_lon = lon_dron + d_lon
+    
+    return new_lat, new_lon
+
+def consumer(queue_in, pixel_mask, backend_queue, fps, camera_f, to_print = False, confidence_filters = None):
     print("starting consumer")
     try:
         rtsp_url = "rtsp://localhost:8554/mystream"
@@ -735,12 +747,10 @@ def consumer(queue_in, pixel_mask, backend_queue, fps, to_print = False, confide
                 # Getting ids
                 filtered_objects, history, next_id = assign_ids(filtered_objects, history, next_id)
                 
-                #filtered_objects = update_objects_coordinates(filtered_objects, drone_dict)
+                filtered_objects = update_objects_coordinates(filtered_objects, drone_dict, frame_h, frame_w, camera_f)
 
                 annotated_frame = annotate_img_opencv(frame, filtered_objects, pixel_mask, drone_dict, frames)
 
-                # Sendiing
-                send_to_tak(drone_dict, filtered_objects)
                 backend_queue.put(filtered_objects)
                 out.write(annotated_frame)
 
@@ -823,47 +833,19 @@ async def websocket_server(objects_history):
     async with websockets.serve(lambda ws, path: handle_message(ws, objects_history), "", 12001):
         await asyncio.Future()
 
-async def main(objects_history, tak_history, tak_frequency):
+async def main(cot_url, objects_history, tak_history, tak_frequency):
     """
     Initiating websockets
     """
-    print("initiating")
-    
-    # # TAK init
-    # print("TAK initiation...")
-    # config = getConfig()
-    # clitool = pytak.CLITool(config)
-    # await clitool.setup()
-    # print("TAK functions initiated")
-
-    # # Create an instance of MySender for each set of test data
-    # tasks = []
-    # for object_type, lat, lon, h in test_data:
-    #     sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
-    #     tasks.append(sender.run())
-
-    # # Start all tasks.
-    # await asyncio.gather(*tasks)
     
     websocket_task = websocket_server(objects_history)
-    tak_message_task = handle_tak_message(tak_history, tak_frequency)
+    tak_message_task = handle_tak_message(cot_url, tak_history, tak_frequency)
 
     # Use asyncio.gather to run both tasks concurrently
     await asyncio.gather(websocket_task, tak_message_task)
 
-    # Websocket to frontend
-    #async with websockets.serve(lambda ws, path: handle_message(ws, objects_history), "", 12001):
-    #    await asyncio.Future() 
-
     print("fontend and tak initiated")
-    #await asyncio.run(handle_tak_message(tak_history))
-    
-    # Websocket to TAK server
-    #async with websockets.serve(lambda hist: handle_tak_message(ws, tak_history)):
-    #    await asyncio.Future() 
 
-    # Run the WebSocket server
-    #await websocket_server(objects_history, lock)
 
 if __name__ == "__main__":
     """
@@ -871,15 +853,21 @@ if __name__ == "__main__":
     """
 
     n_producers = 2
+
+    # Video mask
     pixel_mask = 0 # 0, 1 or 2
+
+    # Camera images
     fps = 30
+    camera_f = 22 # Used for gps estimation
 
     # Data to frontend
     max_history_seconds = 5 # seconds
     max_history_size = max_history_seconds * fps
 
     # Frequency TAK server updates (times per second)
-    tak_frequency = 2
+    cot_url = "tls://158.101.179.114:8089"
+    tak_frequency = 0.5
     tak_history_length = int(fps / tak_frequency)
 
     manager = Manager()
@@ -943,7 +931,7 @@ if __name__ == "__main__":
     processes.append(aggregator_process)
 
     consumer_process = Process(target=consumer, name="consumer",
-        args=(queue_aggr2cons, pixel_mask, queue_cons2backend, fps, False, yolo_confidence_filters))
+        args=(queue_aggr2cons, pixel_mask, queue_cons2backend, fps, camera_f, False, yolo_confidence_filters))
     processes.append(consumer_process)
 
     backend_process = Process(target=backend, name="backend",
@@ -955,7 +943,7 @@ if __name__ == "__main__":
         process.start()
         print(f"started {process}")
 
-    asyncio.run(main(objects_history, tak_history, tak_frequency))
+    asyncio.run(main(cot_url, objects_history, tak_history, tak_frequency))
 
     try:
         for process in processes:
