@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 import pytak
 import random
 from configparser import ConfigParser
+import time
 
 def object2COT(object) :
     cot_types = {
@@ -94,22 +95,20 @@ async def main():
     await clitool.setup()
     print("done")
 # Generate test data
-    test_data = []
-    for _ in range(10):
+    while True:
+        # Generate a random set of test data
         object_type = random.choice(["pedestrian", "car", "van", "truck", "military_tank", "military_truck", "military_vehicle", "BMP-1", "Rosomak", "T72", "people", "soldier", "trench", "hidden_object"])
         lat = round(random.uniform(-90, 90), 6)
         lon = round(random.uniform(-180, 180), 6)
         h = round(random.uniform(-100, 100), 2)
-        test_data.append((object_type, lat, lon, h))
-
-    # Create an instance of MySender for each set of test data
-    tasks = []
-    for object_type, lat, lon, h in test_data:
+        
         sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
-        tasks.append(sender.run())
+        clitool.add_tasks(set([sender]))
+        
 
     # Start all tasks.
-    await asyncio.gather(*tasks)
+        await clitool.run()
+        await asyncio.sleep(2)
 
 
 if __name__ == "__main__":
