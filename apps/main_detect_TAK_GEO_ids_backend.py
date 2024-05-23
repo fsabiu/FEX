@@ -13,6 +13,7 @@ import itertools
 from PIL import Image
 import queue as queue_lib
 import time
+import math
 
 # Reading metadata and streaming
 import av
@@ -149,8 +150,8 @@ def annotate_img_opencv(image, annotations, pixel_mask, telemetry, frame_no):
         if "id" in annotation:
             ob_id = annotation["id"]
         tag_name = annotation.get("tagName")
-        if tag_name == "car" and annotation['model_id'] == 1:
-            tag_name = "hidden object"
+        # if tag_name == "car" and annotation['model_id'] == 1:
+        #     tag_name = "hidden object"
         #if tag_name == "hidden object":
         #    tag_name = "vehicle"
         confidence = round(float(annotation.get("confidence")), 2)
@@ -400,25 +401,42 @@ async def send_geojson_periodically(websocket, objects_history, interval=1):
     while True:
         if websocket.open:
             recent_objects_list = get_most_recent_versions(objects_history)
-            geojson_objs = [
-            {
+            features_list = []
+            for obj in recent_objects_list:
+                features_list.append(
+                    {"type": "Feature", 
+                    "properties": {"name": obj["tagName"], "id": obj["id"]},
+                    "geometry": {
+                            "type": "Point",
+                            "coordinates": [obj["lon"], obj["lat"]]
+                            }
+                    }
+                )
+            print(features_list)
+            geojson_objs = [{
                 "type": "FeatureCollection",
-                "features": [
-                        {"type": "Feature", "geometry": 
-                        {"type": "Point", 
-                        "coordinates": [21.948178672207602, 50.734347105368219]}, 
-                        "properties": {"name": "tank", "id": "100"}}, 
-
-                        {"type": "Feature", "geometry": 
-                        {"type": "Point", "coordinates": [21.948178672207602, 50.734347105368219]}, 
-                        "properties": {"name": "car", "id": "101"}}, 
-
-                        {"type": "Feature", "geometry": 
-                        {"type": "Point", "coordinates": [21.948178672207602, 50.734347105368219]}, 
-                        "properties": {"name": "van", "id": "102"}}
-                ]
+                "features": features_list
             }
             ]
+            # geojson_objs = [
+            # {
+            #     "type": "FeatureCollection",
+            #     "features": [
+            #             {"type": "Feature", "geometry": 
+            #             {"type": "Point", 
+            #             "coordinates": [21.948178672207602, 50.734347105368219]}, 
+            #             "properties": {"name": "tank", "id": "100"}}, 
+
+            #             {"type": "Feature", "geometry": 
+            #             {"type": "Point", "coordinates": [21.948178672207602, 50.734347105368219]}, 
+            #             "properties": {"name": "car", "id": "101"}}, 
+
+            #             {"type": "Feature", "geometry": 
+            #             {"type": "Point", "coordinates": [21.948178672207602, 50.734347105368219]}, 
+            #             "properties": {"name": "van", "id": "102"}}
+            #     ]
+            # }
+            # ]
             feature_collection = FeatureCollection(geojson_objs)
             await websocket.send(json.dumps(feature_collection))
         await asyncio.sleep(interval)
@@ -632,9 +650,9 @@ def update_objects_coordinates(filtered_objects, drone_dict, frame_h, frame_w, c
         else:
             for obj in filtered_objects:
                 x_pixel, y_pixel = calculate_central_point(obj)
-                obj_lat, obj_lon = pixel_to_gps(drone_info["lat_dron"], drone_info["lon_dron"], 
-                    drone_info["h_dron"], drone_info["pitch"], drone_info["yaw"], 
-                    drone_info["roll"], drone_dict["fov_h"], frame_w, frame_h, x_pixel, y_pixel)
+                obj_lat, obj_lon = pixel_to_gps(drone_dict["lat_dron"], drone_dict["lon_dron"], 
+                    drone_dict["h_dron"], drone_dict["pitch"], drone_dict["yaw"], 
+                    drone_dict["roll"], drone_dict["fov_h"], frame_w, frame_h, x_pixel, y_pixel)
                 obj["lat"] = obj_lat
                 obj["lon"] = obj_lon
     else:
@@ -647,10 +665,10 @@ def update_objects_coordinates(filtered_objects, drone_dict, frame_h, frame_w, c
 
 def calculate_central_point(obj):
     # Extract coordinates
-    x1, y1 = obj[bounds]['x1'], obj[bounds]['y1']
-    x2, y2 = obj[bounds]['x2'], obj[bounds]['y2']
-    x3, y3 = obj[bounds]['x3'], obj[bounds]['y3']
-    x4, y4 = obj[bounds]['x4'], obj[bounds]['y4']
+    x1, y1 = obj["bounds"]['x1'], obj["bounds"]['y1']
+    x2, y2 = obj["bounds"]['x2'], obj["bounds"]['y2']
+    x3, y3 = obj["bounds"]['x3'], obj["bounds"]['y3']
+    x4, y4 = obj["bounds"]['x4'], obj["bounds"]['y4']
     
     # Calculate average x-coordinate
     x = (x1 + x2 + x3 + x4) / 4
@@ -661,6 +679,12 @@ def calculate_central_point(obj):
     return x, y
 
 def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, f, img_width, img_height, x_pixel, y_pixel):
+    # corrections on KLV STANAG > calculate
+    h_dron = h_dron - 140
+    pitch = 90 + pitch
+    yaw = 90 - yaw
+    f = (img_width/2) / math.tan(f/2)
+
     # Earth parameters
     R_EARTH = 6371e3  # Radius of the Earth in meters
     
@@ -891,15 +915,15 @@ if __name__ == "__main__":
 
     yolo_paths = [
         "../apps/models/yolo_VDTMLT_1024p.pt",
-        "../apps/models/day1day2.pt",
+        "../apps/models/fixed_oug.pt",
     ]
     yolo_confidence_filters = [
         {
             "pedestrian": 0.7, 
-            "car": 0.80, 
+            "car": 0.70, 
             "van": 0.65,
             "truck": 0.6, 
-            "military_tank": 0.70, 
+            "military_tank": 0.50, 
             "military_truck": 0.5, 
             "military_vehicle": 0.5,  
             "military vehicle": 0.5
@@ -910,11 +934,11 @@ if __name__ == "__main__":
             "Rosomak": 0.3,
             "T72": 0.3,
             "car": 0.7,
-            "military vehicle": 0.7,
+            "military vehicle": 0.5,
             "people": 0.7,
             "soldier": 0.6,
             "trench": 0.7,
-            "hidden object": 0.75
+            "hidden object": 0.99
         }
     ]
 
