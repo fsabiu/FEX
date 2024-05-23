@@ -406,15 +406,15 @@ async def send_geojson_periodically(websocket, objects_history, interval=1):
                 "features": [
                         {"type": "Feature", "geometry": 
                         {"type": "Point", 
-                        "coordinates": [50.73134, 21.9524]}, 
+                        "coordinates": [21.948178672207602, 50.734347105368219]}, 
                         "properties": {"name": "tank", "id": "100"}}, 
 
                         {"type": "Feature", "geometry": 
-                        {"type": "Point", "coordinates": [50.731341, 21.952401]}, 
+                        {"type": "Point", "coordinates": [21.948178672207602, 50.734347105368219]}, 
                         "properties": {"name": "car", "id": "101"}}, 
 
                         {"type": "Feature", "geometry": 
-                        {"type": "Point", "coordinates": [50.731342, 21.952402]}, 
+                        {"type": "Point", "coordinates": [21.948178672207602, 50.734347105368219]}, 
                         "properties": {"name": "van", "id": "102"}}
                 ]
             }
@@ -460,7 +460,7 @@ def gen_cot_detection(obj,lat,lon,h):
     root = ET.Element("event")
     root.set("version", "2.0")
     root.set("type", object2COT(obj))  # insert your type of marker
-    root.set("uid", ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)))
+    root.set("uid", 'oracle_'+''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8)))
     root.set("how", "a")
     root.set("time", pytak.cot_time())
     root.set("start", pytak.cot_time())
@@ -507,7 +507,7 @@ class MySender(pytak.QueueWorker):
 def getConfig(cot_url) :
     config = ConfigParser()
     config["mycottool"] = {"COT_URL": cot_url, 
-                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/admin.p12",
+                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/oracle1.p12",
                            "PYTAK_TLS_CLIENT_PASSWORD" : "atakatak",
                            "PYTAK_TLS_DONT_VERIFY" : 1,
                             "PYTAK_TLS_DONT_CHECK_HOSTNAME": 1
@@ -539,7 +539,7 @@ async def handle_tak_message(cot_url, tak_history, tak_frequency):
             tasks.append(sender.run())
             # Start all tasks.
             #await clitool.run()
-            print("Sent")
+            #print("Sent")
 
         await asyncio.gather(*tasks)
 
@@ -634,10 +634,11 @@ def update_objects_coordinates(filtered_objects, drone_dict, frame_h, frame_w, c
                 x_pixel, y_pixel = calculate_central_point(obj)
                 obj_lat, obj_lon = pixel_to_gps(drone_info["lat_dron"], drone_info["lon_dron"], 
                     drone_info["h_dron"], drone_info["pitch"], drone_info["yaw"], 
-                    drone_info["roll"], camera_f, frame_w, frame_h, x_pixel, y_pixel)
+                    drone_info["roll"], drone_dict["fov_h"], frame_w, frame_h, x_pixel, y_pixel)
                 obj["lat"] = obj_lat
                 obj["lon"] = obj_lon
     else:
+        #print("Empty drone dict")
         for obj in filtered_objects:
             obj["lat"] = "50.734347105368215"
             obj["lon"] = "21.948178672207604"
@@ -866,7 +867,7 @@ if __name__ == "__main__":
     max_history_size = max_history_seconds * fps
 
     # Frequency TAK server updates (times per second)
-    cot_url = "tls://158.101.179.114:8089"
+    cot_url = "tls://10.8.0.1:8089"
     tak_frequency = 0.5
     tak_history_length = int(fps / tak_frequency)
 
