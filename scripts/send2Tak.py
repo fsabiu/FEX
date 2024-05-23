@@ -74,8 +74,8 @@ class MySender(pytak.QueueWorker):
 
 def getConfig() :
     config = ConfigParser()
-    config["mycottool"] = {"COT_URL": "tls://10.8.0.1:8089", 
-                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/oracle1.p12",
+    config["mycottool"] = {"COT_URL": "tls://158.101.179.114:8089", 
+                           "PYTAK_TLS_CLIENT_CERT": "/home/ubuntu/shared/tak_certs/admin.p12",
                            "PYTAK_TLS_CLIENT_PASSWORD" : "atakatak",
                            "PYTAK_TLS_DONT_VERIFY" : 1,
                             "PYTAK_TLS_DONT_CHECK_HOSTNAME": 1
