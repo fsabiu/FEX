@@ -1,0 +1,355 @@
+Steps
+
+1. Image capturing 
+
+    1.1 Save complete streaming:  
+        Si no se conecta o no se pueden crear ficheros: sudo mount -o remount,rw /
+        Server: fex-1 
+        conda activate streaming
+        python /home/ubuntu/FEX/scripts/downloadStream.py <stream_url> <downloading_folder> <seconds_each_video_long>
+            example : python downloadStream.py rtsp://10.8.0.1:8554/live/UAS-BIXBY /shared/stream 10
+
+        python script.py stream_address destination_folder
+        "se esiste già la cartella, errore"
+        "se non esiste crearla"
+
+    1.2 Save frames for training
+        Server: fex-1
+        conda activate streaming
+        python /home/ubuntu/FEX/scripts/downloadFrames.py <stream_url> <downloading_folder> <frames_frequency>
+            example : python downloadFrames.py rtsp://10.8.0.1:8554/live/UAS-BIXBY /shared/stream/images 4
+    
+    1.3 Create stream from video
+        1.3.5 Create stream from images
+        Server: fex-1 / fex-4 /fex-7 (132.145.235.209)
+            SETUP & RUN MEDIAMTX SERVER
+                wget https://github.com/bluenviron/mediamtx/releases/download/v1.8.1/mediamtx_v1.8.1_linux_amd64.tar.gz
+                mkdir mediamtx
+                tar -xvzf mediamtx_v1.8.1_linux_amd64.tar.gz -C mediamtx
+                rm mediamtx_v1.8.1_linux_amd64.tar.gz
+                cd mediamtx/
+                ./mediamtx
+            INSTALL gstreamer
+                sudo apt-get install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio
+                
+                # <navigate to where you want the opencv-python repo to be stored>
+                git clone --recursive https://github.com/skvark/opencv-python.git
+                cd opencv-python
+                export CMAKE_ARGS="-DWITH_GSTREAMER=ON"
+                pip install --upgrade pip wheel
+                # this is the build step - the repo estimates it can take from 5 
+                #   mins to > 2 hrs depending on your computer hardware
+                pip wheel . --verbose
+                pip install opencv_python*.whl
+                # note, wheel may be generated in dist/ directory, so may have to cd first
+
+                sudo apt install gstreamer1.0-rtsp
+            RUN
+                cd FEX/scripts/streamImgs2RTSP_opencv.py
+                update image folder
+                python streamImgs2RTSP_opencv.py
+
+
+    1.3.5 Create stream from images
+    Server: fex-1 / fex-4(138.2.136.192)
+        SETUP & RUN MEDIAMTX SERVER
+            wget https://github.com/bluenviron/mediamtx/releases/download/v1.8.1/mediamtx_v1.8.1_linux_amd64.tar.gz
+            mkdir mediamtx
+            tar -xvzf mediamtx_v1.8.1_linux_amd64.tar.gz -C mediamtx
+            rm mediamtx_v1.8.1_linux_amd64.tar.gz
+            cd mediamtx/
+            ./mediamtx
+        INSTALL ffmpeg
+            sudo apt install ffmpeg
+        RUN Script
+        cd FEX/scripts
+        python /home/ubuntu/FEX/scripts/downloadFrames.py <images_folder> <rtsp_url> <frame_rate>
+        python streamPILimg2RTSP_ffmpeg.py frames/frame_20240517_101530 rtsp://localhost:8554/mystream 8
+
+
+    1.4 Create inference YOLOv8
+        Script
+            Server yolo
+            conda activate <yolo_env>
+            1.4.1. Read frame i (from stream)
+
+                if frame % 4 == 0:
+                    frame + detection result = inference(yolo)
+            
+            1.4.2. Stream frame (+ last detection results)
+
+
+    1.5 Create inference ORCNN
+
+2. Image classification -> to partially label the data
+        fex-
+        python FEX/scripts/yolo_to_sample_data.py folder_data
+
+    -----
+
+3. Image annotation -> to complete the data labelling (even manually)
+    fex-4 
+    #sudo firewall-cmd --zone=public --add-port=8080/tcp --permanent
+    #sudo firewall-cmd --reload
+    #sudo firewall-cmd --list-all
+    conda activate labelstudio
+    nohup label-studio > logs/labelstudio_8080_$(date "+%Y.%m.%d-%H.%M").log 2>&1 &
+    http://138.2.136.192:8080/user/login/
+    -----
+
+
+4. Dataset construction -> from data collected + eventual further dataset to a unique train, test, val 
+    Assumption: /shared/data will contain a folder for each dataset
+    Output: YOLO_xxxxxx inside /shared/datasets_for_training
+
+    0. Check if the dataset located at /shared/data that has been downloaded from the internet contains the folders 
+        train, val, and test, with images and labels as subfolders within each one, respectively.
+        If the dataset downloaded from the internet only has the train folder, execute:
+        cd ~/FEX/scripts/
+        python split_dataset.py <Dataset_name_in_/shared/data> <url_to_images_folder_/shared/data/dataset_name/folder/images> <url_to_labels_folder_/shared/data/dataset_name/folder/labels>
+            output: dataset splitted in /shared/data/<dataset_name>
+
+    1. Build the datasets_dict.json. 
+        This dictionary will act as a control dictionary during the construction of the final dataset. In it, a new collection
+        should be added for each dataset we want to merge, with the names of the folders respectively for train, test, val, images,
+        and labels in each case.
+
+        It's important to include the collection of classes in each dataset. Consistency with the number assigned to each class must
+         be maintained. If we want to remove a class, we assign the value it has in the current dataset to -1.
+
+         Then, execute:
+         cd ~/FEX/scripts
+         python genDataset.py <dataset_Name_1> <dataset_Name_2>...<dataset_Name_3> <output_name>
+            output: this will generate the whole dataset in /shared/datasets_for_training with the <output_name> as the new dataset name
+        
+         cp ~/FEX/scripts/datasets_dict.json /shared/datasets_for_training/<dataset_name>
+
+5. Data augmentation
+    Server: fex-x
+    #FEX/scripts/imgaug_install.sh (manually, only first time)
+    conda activate imgaug
+    cd /shared/imgaug
+    pip install -r requirements.txt
+    python imgaug.py 4 /shared/datasets_for_training/YOLOdataset/train/ images labels
+    #python imgaug.py 2 /shared/datasets_for_training/YOLOdataset/val/ images labels
+
+6. Training YOLOv8
+    Server: fex-7 fex-5
+    conda activate yolov8
+    cp /home/ubuntu/FEX/scripts/train_yolov8.py /home/ubuntu/shared/datasets_for_training/<dataset>
+    adjust and copy /home/ubuntu/shared/datasets_for_training/template_classes.json to /home/ubuntu/shared/datasets_for_training/<dataset>
+        cp /shared/datasets_for_training/template_classes.json /shared/datasets_for_training/<dataset>/
+    cd /shared/datasets_for_training/<dataset>
+    #python train_yolov8.py <dataset>
+    #nohup python app_yolow.py > logs/app_yolow_2054_$(date "+%Y.%m.%d-%H.%M.%S").log 2>&1 &
+    #nohup python train_yolov8.py <dataset> > logs_train_$(date "+%Y.%m.%d-%H.%M").log 2>&1 &
+    screen -S training
+    conda activate YOLO8
+    python train_yolov8.py YOLO_tanks_militaryTrucks > logs_train_$(date "+%Y.%m.%d-%H.%M").log 2>&1 &
+    ctrl+a, d
+
+    
+
+7 Converting YOLO labels to DOTA 
+    Server: fex-6
+    conda activate yolov8
+    cd /home/ubuntu/FEX/scripts
+    python YOLOtoDOTA.py /shared/datasets_for_training/<dataset>/
+
+
+8. Training ORCNN
+    Server: fex-5
+    cp /home/ubuntu/mmrotate/configs/oriented_rcnn/oriented_rcnn_r50_fpn_1x_dota_le90.py /home/ubuntu/mmrotate/configs/my_config.py
+    maintain only data, dataset_type, base
+    sudo su - ubuntu
+    cd mmrotate/
+    conda activate openmmlab
+    setsid ./tools/dist_train.sh configs/my_config.py 2
+
+9. Serving YOLOv8
+    Server fex-3 / fex-7
+    conda activate yolov8
+    cd /home/ubuntu/FEX/apps
+    pip install -r requirements_yolo.txt
+    cd scripts/
+    ./network.sh    #be sure you have added the port you want to open to this file
+    #check you have "logs" folder in  /FEX/apps. If not: mkdir logs
+    nohup python app_yolo_tanks_trucks.py > logs/app_yolo_tanks_trucks_2055_$(date "+%Y.%m.%d-%H.%M.%S").log 2>&1 &
+
+
+10. Serving ORCNN
+    Server: fex-6
+    conda activate openmmlab
+    cd /home/ubuntu/FEX/apps
+    pip install -r requirements_orcnn.txt
+    nohup python app_orcnn.py > logs/app_orcnn_2053_$(date "+%Y.%m.%d-%H.%M.%S").log 2>&1 &
+
+11. Serving YOLO-world
+
+
+
+
+
+## Training VisDrone + TankTrucks
+Server: fex-7
+conda activate yolov8
+# put yaml into /shared/data/VisDrone
+cd /home/ubuntu/FEX/scripts
+python download_visdrone.py
+mkdir shared/datasets_for_training/YOLO_DOTA_VisDrone_TanksTrucks
+cp /home/ubuntu/FEX/scripts/train_yolov8.py /home/ubuntu/shared/datasets_for_training/YOLO_DOTA_VisDrone_TanksTrucks/train_yolov8.py
+cp /home/ubuntu/shared/datasets_for_training/template_classes.json /home/ubuntu/shared/datasets_for_training/YOLO_DOTA_VisDrone_TanksTrucks/classes.json
+
+
+---- hasta aqui
+# Classes
+Visdrone names:
+  0: pedestrian
+  1: people -> -1
+  2: bicycle -> -1
+  3: car
+  4: van 
+  5: truck
+  6: tricycle -> -1
+  7: awning-tricycle -> -1
+  8: bus -> -1
+  9: motor -> -1
+
+TanksTrucks: todas
+
+Model YOLO_VisDrone_T_MT_Tav: VisDrone Reduced + Tanks + Military Trucks + Tanks Airview
+
+
+
+cp ~/FEX/scripts/datasets_dict.json /shared/datasets_for_training/YOLO_DOTA_VisDrone_TanksTrucks/
+! DOTA no esta organizado en train val test
+
+
+
+python split_dataset.py DOTAv1 DOTAv1/images DOTAv1/labels
+! el script no crea el training set. no puedo
+
+
+adjust and copy /home/ubuntu/shared/datasets_for_training/template_classes.json to /home/ubuntu/shared/datasets_for_training/<dataset>
+    cp /shared/datasets_for_training/template_classes.json /shared/datasets_for_training/<dataset>/
+cd /shared/datasets_for_training/<dataset>
+python train_yolov8.py <dataset>
+nohup python app_yolow.py > logs/app_yolow_2054_$(date "+%Y.%m.%d-%H.%M.%S").log 2>&1 &
+nohup python train_yolov8.py <dataset> > logs_train_$(date "+%Y.%m.%d-%H.%M").log 2>&1 &
+screen -S training
+python train_yolov8.py YOLO_tanks_militaryTrucks > logs_train_$(date "+%Y.%m.%d-%H.%M").log 2>&1 &
+ctrl+a, d
+
+
+
+Monday:
+
+    1
+        1.a Pipeline live during drone flight
+
+
+        1.b Save videos and images
+
+
+    2. After drone flight
+
+        output: data /shared/sample_data/starting_datetime/....
+        copy an image each x to another folder for manual annotation
+
+    3. app_main.py pointing to /shared/sample_data/starting_datetime/
+        save det_images (with bounding boxes) and images (original) only if detected objects
+        output: /shared/data/real_data_datetime/images and /shared/data/real_data_datetime/labels
+        
+        download data
+
+        manual checking (removing images)
+
+        manual annotation (manual sampling)
+
+    4. Splitting dataset
+
+    
+Info per fra ( INTEGRATION ):
+    Server : fex-7
+    conda activate streaming
+    cd FEX/scripts/streamImgs2RTSP_opencv.py
+    cerca commento # PER FRANCESCO (COPIA create_writer)
+    Run your script
+
+    To read the stream : ffplay -rtsp_transport tcp rtsp://132.145.235.209:8554/mystream
+
+
+
+cd /home/ubuntu/FEX/demo/media
+ffmpeg -re -stream_loop -1 -i NATO.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream
+
+Problema dbus
+sudo systemctl enable dbus
+sudo systemctl start dbus
+
+
+RUN WHOLE PIPELINE
+
+    FEX-1 : 
+    open mediamtx:
+        cd mediamtx
+        ./mediamtx
+    stream RTSP:
+        ffmpeg -re -stream_loop -1 -i dron1.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream
+
+    FEX-7 :
+        open mediamtx:
+            cd mediamtx
+            ./mediamtx
+        
+        cd /FEX/demo/media
+        conda activate YOLOW-STREAMING
+        python main_detect.py rtsp://158.101.179.114:8554/mystream  (substitute ip with ip of server streaming)
+
+
+
+VPN (DATA GATHERING) - FEX - 1:
+    sudo openvpn --config fex-1_oracle5.ovpn
+    sudo openvpn --config shared/fex_oracle1.ovpn
+
+    conda activate streaming
+
+    nohup python downloadFrames.py rtsp://10.8.0.1:8554/live/UAS-BIXBY ~/shared/frames 4
+    nohup python downloadStream.py rtsp://10.8.0.1:8554/live/UAS-BIXBY ~/shared/stream 10  
+    python downloadFrames.py rtsp://158.101.179.114:8554/mystream ~/shared/frames 4
+    python downloadStream.py rtsp://158.101.179.114:8554/mystream ~/shared/stream 10 
+    nohup python downloadFrames.py rtsp://10.8.0.1:8554/live/UAS-BIXBY ~/shared/frames 4 > logs/downloadFrames.log 2>&1 &
+    nohup python downloadStream.py rtsp://10.8.0.1:8554/live/UAS-BIXBY ~/shared/stream 10 > logs/downloadStream.log 2>&1 &
+
+
+
+    python main_detect.py rtsp://10.8.0.1:8554/live/UAS-BIXBY
+
+    ffplay -rtsp_transport tcp rtsp://132.145.235.209:8554/mystream
+    http://132.145.235.209:8888/mystream
+
+
+
+    python downloadFrames.py rtsp://10.8.0.1:8554/live/UAS-BIXBY ~/shared/frames 25
+    DRONE: python downloadFrames.py rtmp://10.8.0.1:1935/live/UAS-BIXBY ~/shared/frames 15
+
+    python downloadStream.py rtsp://10.8.0.1:8554/live/UAS-BIXBY ~/shared/stream 600
+    DRONE : python downloadStream.py rtmp://10.8.0.1:1935/live/UAS-BIXBY ~/shared/stream 10
+
+
+
+658110.download_frames
+659485.download_stream
+
+
+
+
+TAK API :
+SWAGGER (LOCALLY) : https://158.101.179.114:8443/swagger-ui/index.html#/
+
+Get Mission :
+    curl --cert shared/tak_certs/oracle1-cert.pem --key shared/tak_certs/oracle1-key.pem --cacert shared/tak_certs/truststore-root-certs.pem --insecure https://10.8.0.1:8443/Marti/api/missions
+
+Post Mission :
+    curl --cert shared/tak_certs/oracle1-cert.pem --key shared/tak_certs/oracle1-key.pem --cacert shared/tak_certs/truststore-root-certs.pem --insecure \
+    -X POST "https://10.8.0.1:8443/Marti/api/missions/oracle_test?description=post2tak+oracle+test&tool=public"
