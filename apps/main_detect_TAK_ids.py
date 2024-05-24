@@ -113,10 +113,10 @@ def annotate_img_opencv(image, annotations, pixel_mask):
         if "id" in annotation:
             ob_id = annotation["id"]
         tag_name = annotation.get("tagName")
-        if tag_name == "car":
-            tag_name = "vehicle"
-        if tag_name == "hidden object":
-            tag_name = "vehicle"
+        if tag_name == "car" and annotation['model_id'] == 1:
+            tag_name = "hidden object"
+        #if tag_name == "hidden object":
+        #    tag_name = "vehicle"
         confidence = round(float(annotation.get("confidence")), 2)
         text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}, {annotation['model_id']}"
         
