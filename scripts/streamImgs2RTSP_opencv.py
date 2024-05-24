@@ -15,7 +15,7 @@ def create_writer(rtsp_url,width,height,fps):
     # Create VideoWriter object
     out = cv2.VideoWriter('appsrc ! videoconvert' + \
         ' ! video/x-raw,format=I420' + \
-        ' ! x264enc speed-preset=veryslow bitrate=600 key-int-max=' + str(fps * 2) + \
+        ' ! x264enc speed-preset=medium bitrate=800 key-int-max=' + str(fps*2) + \
         ' ! video/x-h264,profile=baseline' + \
         ' ! rtspclientsink location=' + rtsp_url,
         cv2.CAP_GSTREAMER, fourcc, fps, (width, height), True)
@@ -46,10 +46,10 @@ def stream_images_as_rtsp(image_folder, rtsp_url, width, height, fps):
     print("RTSP streaming finished.")
 
 # Example usage
-image_folder = "frames/frame_20240517_101530"
+image_folder = "/home/ubuntu/shared/data/frame_20240517_101530"
 rtsp_url = "rtsp://localhost:8554/mystream"
 width = 1280
 height = 720
-fps = 4
+fps = 24
 
 stream_images_as_rtsp(image_folder, rtsp_url, width, height, fps)
