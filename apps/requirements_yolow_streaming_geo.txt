@@ -1,0 +1,9 @@
+#conda create --name YOLO-W  python=3.10 -y
+ultralytics
+klvdata
+av
+websockets
+geojson
+pytak
+cryptography
+# sudo apt install gstreamer1.0-rtsp

@@ -5,6 +5,7 @@ import sys
 import imgaug as ia
 import imgaug.augmenters as iaa
 from PIL import Image
+import random
 
 ia.seed(1)
 
@@ -54,13 +55,13 @@ def generateAugImg(im, n, output="PIL"):
                 iaa.AdditiveGaussianNoise(
                     loc=0, scale=(0.0, 0.05*255), per_channel=0.5
                 ),
-                iaa.OneOf([
-                    iaa.Dropout((0.01, 0.1), per_channel=0.5),
-                    iaa.CoarseDropout(
-                        (0.03, 0.15), size_percent=(0.02, 0.05),
-                        per_channel=0.2
-                    ),
-                ]),
+                # iaa.OneOf([
+                #     iaa.Dropout((0.01, 0.1), per_channel=0.5),
+                #     iaa.CoarseDropout(
+                #         (0.03, 0.15), size_percent=(0.02, 0.05),
+                #         per_channel=0.2
+                #     ),
+                # ]),
                 iaa.Invert(0.05, per_channel=True),
                 iaa.Add((-10, 10), per_channel=0.5),
                 iaa.Multiply((0.5, 1.5), per_channel=0.5),
@@ -93,7 +94,7 @@ def generateAugImg(im, n, output="PIL"):
 
     return result
 
-def main(parent_dir, n, img_dir, labels_dir):
+def main(parent_dir, n, img_dir, labels_dir, frequency):
     # Check if img_dir and labels_dir exist inside parent_dir
     if not os.path.exists(os.path.join(parent_dir, img_dir)) or not os.path.exists(os.path.join(parent_dir, labels_dir)):
         print("Error: Image directory or labels directory does not exist.")
@@ -101,7 +102,7 @@ def main(parent_dir, n, img_dir, labels_dir):
 
     # Iterate through each file in img_dir
     for filename in os.listdir(os.path.join(parent_dir, img_dir)):
-        if filename.lower().endswith(('.jpg', '.jpeg', '.png', 'JPG', 'JPEG')):
+        if filename.lower().endswith(('.jpg', '.jpeg', '.png', 'JPG', 'JPEG')) and random.random() < frequency:
             # Read the image using PIL
             img_path = os.path.join(parent_dir, img_dir, filename)
             image = Image.open(img_path)
@@ -125,12 +126,13 @@ def main(parent_dir, n, img_dir, labels_dir):
 
 if __name__ == "__main__":
     # Usage: python script.py n parent_dir img_dir labels_dir
-    if len(sys.argv) != 5:
-        print("Usage: python script.py n_augment parent_dir img_dir labels_dir")
+    if len(sys.argv) != 6:
+        print("Usage: python script.py n_augment frequency parent_dir img_dir labels_dir")
         sys.exit(1)
     
     n_agument = int(sys.argv[1])
-    parent_dir = sys.argv[2]
-    img_dir = sys.argv[3]
-    labels_dir = sys.argv[4]
-    main(parent_dir, n_agument, img_dir, labels_dir)
+    frequency = float(sys.argv[2])
+    parent_dir = sys.argv[3]
+    img_dir = sys.argv[4]
+    labels_dir = sys.argv[5]
+    main(parent_dir, n_agument, img_dir, labels_dir, frequency)

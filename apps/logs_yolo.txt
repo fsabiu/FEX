@@ -1,0 +1,193 @@
+2024/05/17 17:29:19:yolo - Inference time: 2.180415153503418 seconds
+2024/05/17 17:29:19:{'objects': [{'bounds': {'x1': 63321, 'y1': 224842, 'x2': 1346327, 'y2': 224842, 'x3': 1346327, 'y3': 490318, 'x4': 63321, 'y4': 490318}, 'confidence': 0.9491982460021973, 'tagName': 'military_tank'}, {'bounds': {'x1': 144041, 'y1': 162638, 'x2': 677819, 'y2': 162638, 'x3': 677819, 'y3': 284225, 'x4': 144041, 'y4': 284225}, 'confidence': 0.9478955268859863, 'tagName': 'military_tank'}, {'bounds': {'x1': 590583, 'y1': 138603, 'x2': 1033343, 'y2': 138603, 'x3': 1033343, 'y3': 225525, 'x4': 590583, 'y4': 225525}, 'confidence': 0.9464912414550781, 'tagName': 'military_tank'}], 'all_classes': [0, 0, 0], 'time': 2.180415153503418}
+2024/05/17 17:30:08:yolo - Inference time: 0.11983609199523926 seconds
+2024/05/17 17:30:08:{'objects': [], 'all_classes': [], 'time': 0.11983609199523926}
+2024/05/17 17:31:46:yolo - Inference time: 0.11845231056213379 seconds
+2024/05/17 17:31:46:{'objects': [], 'all_classes': [], 'time': 0.11845231056213379}
+2024/05/17 17:32:06:yolo - Inference time: 0.11510992050170898 seconds
+2024/05/17 17:32:06:{'objects': [], 'all_classes': [], 'time': 0.11510992050170898}
+2024/05/17 17:32:06:yolo - Inference time: 0.11324071884155273 seconds
+2024/05/17 17:32:06:{'objects': [], 'all_classes': [], 'time': 0.11324071884155273}
+2024/05/17 17:32:07:yolo - Inference time: 0.11305642127990723 seconds
+2024/05/17 17:32:07:{'objects': [], 'all_classes': [], 'time': 0.11305642127990723}
+2024/05/17 17:32:07:yolo - Inference time: 0.1137993335723877 seconds
+2024/05/17 17:32:07:{'objects': [], 'all_classes': [], 'time': 0.1137993335723877}
+2024/05/17 17:32:07:yolo - Inference time: 0.11195850372314453 seconds
+2024/05/17 17:32:07:{'objects': [], 'all_classes': [], 'time': 0.11195850372314453}
+2024/05/17 17:32:07:yolo - Inference time: 0.11414456367492676 seconds
+2024/05/17 17:32:07:{'objects': [{'bounds': {'x1': 1347380, 'y1': 4253, 'x2': 1638372, 'y2': 4253, 'x3': 1638372, 'y3': 500046, 'x4': 1347380, 'y4': 500046}, 'confidence': 0.29694315791130066, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11414456367492676}
+2024/05/17 17:32:07:yolo - Inference time: 0.11255526542663574 seconds
+2024/05/17 17:32:07:{'objects': [], 'all_classes': [], 'time': 0.11255526542663574}
+2024/05/17 17:32:08:yolo - Inference time: 0.1133112907409668 seconds
+2024/05/17 17:32:08:{'objects': [], 'all_classes': [], 'time': 0.1133112907409668}
+2024/05/17 17:32:08:yolo - Inference time: 0.11264944076538086 seconds
+2024/05/17 17:32:08:{'objects': [], 'all_classes': [], 'time': 0.11264944076538086}
+2024/05/17 17:32:08:yolo - Inference time: 0.11255025863647461 seconds
+2024/05/17 17:32:08:{'objects': [], 'all_classes': [], 'time': 0.11255025863647461}
+2024/05/17 17:32:08:yolo - Inference time: 0.1127784252166748 seconds
+2024/05/17 17:32:08:{'objects': [], 'all_classes': [], 'time': 0.1127784252166748}
+2024/05/17 17:32:08:yolo - Inference time: 0.11369824409484863 seconds
+2024/05/17 17:32:08:{'objects': [], 'all_classes': [], 'time': 0.11369824409484863}
+2024/05/17 17:32:09:yolo - Inference time: 0.11441755294799805 seconds
+2024/05/17 17:32:09:{'objects': [{'bounds': {'x1': 1570334, 'y1': 66468, 'x2': 1638400, 'y2': 66468, 'x3': 1638400, 'y3': 255175, 'x4': 1570334, 'y4': 255175}, 'confidence': 0.28086191415786743, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11441755294799805}
+2024/05/17 17:32:09:yolo - Inference time: 0.11362600326538086 seconds
+2024/05/17 17:32:09:{'objects': [], 'all_classes': [], 'time': 0.11362600326538086}
+2024/05/17 17:32:09:yolo - Inference time: 0.11528253555297852 seconds
+2024/05/17 17:32:09:{'objects': [], 'all_classes': [], 'time': 0.11528253555297852}
+2024/05/17 17:32:09:yolo - Inference time: 0.11421084403991699 seconds
+2024/05/17 17:32:09:{'objects': [], 'all_classes': [], 'time': 0.11421084403991699}
+2024/05/17 17:32:10:yolo - Inference time: 0.11741185188293457 seconds
+2024/05/17 17:32:10:{'objects': [], 'all_classes': [], 'time': 0.11741185188293457}
+2024/05/17 17:32:10:yolo - Inference time: 0.11435365676879883 seconds
+2024/05/17 17:32:10:{'objects': [{'bounds': {'x1': 343, 'y1': 99385, 'x2': 289494, 'y2': 99385, 'x3': 289494, 'y3': 514745, 'x4': 343, 'y4': 514745}, 'confidence': 0.4424634575843811, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11435365676879883}
+2024/05/17 17:32:10:yolo - Inference time: 0.1144261360168457 seconds
+2024/05/17 17:32:10:{'objects': [{'bounds': {'x1': 160, 'y1': 67604, 'x2': 274625, 'y2': 67604, 'x3': 274625, 'y3': 516090, 'x4': 160, 'y4': 516090}, 'confidence': 0.46462517976760864, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.1144261360168457}
+2024/05/17 17:32:10:yolo - Inference time: 0.11576342582702637 seconds
+2024/05/17 17:32:10:{'objects': [{'bounds': {'x1': 0, 'y1': 36512, 'x2': 276355, 'y2': 36512, 'x3': 276355, 'y3': 517578, 'x4': 0, 'y4': 517578}, 'confidence': 0.3116181194782257, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11576342582702637}
+2024/05/17 17:32:11:yolo - Inference time: 0.11484885215759277 seconds
+2024/05/17 17:32:11:{'objects': [{'bounds': {'x1': 0, 'y1': 36270, 'x2': 277304, 'y2': 36270, 'x3': 277304, 'y3': 517368, 'x4': 0, 'y4': 517368}, 'confidence': 0.40377482771873474, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11484885215759277}
+2024/05/17 17:32:11:yolo - Inference time: 0.11283063888549805 seconds
+2024/05/17 17:32:11:{'objects': [], 'all_classes': [], 'time': 0.11283063888549805}
+2024/05/17 17:32:11:yolo - Inference time: 0.11221623420715332 seconds
+2024/05/17 17:32:11:{'objects': [], 'all_classes': [], 'time': 0.11221623420715332}
+2024/05/17 17:32:11:yolo - Inference time: 0.1139681339263916 seconds
+2024/05/17 17:32:11:{'objects': [], 'all_classes': [], 'time': 0.1139681339263916}
+2024/05/17 17:32:12:yolo - Inference time: 0.11560344696044922 seconds
+2024/05/17 17:32:12:{'objects': [{'bounds': {'x1': 2145, 'y1': 0, 'x2': 1123914, 'y2': 0, 'x3': 1123914, 'y3': 508145, 'x4': 2145, 'y4': 508145}, 'confidence': 0.30527445673942566, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11560344696044922}
+2024/05/17 17:32:12:yolo - Inference time: 0.11422562599182129 seconds
+2024/05/17 17:32:12:{'objects': [], 'all_classes': [], 'time': 0.11422562599182129}
+2024/05/17 17:32:12:yolo - Inference time: 0.11287236213684082 seconds
+2024/05/17 17:32:12:{'objects': [], 'all_classes': [], 'time': 0.11287236213684082}
+2024/05/17 17:32:12:yolo - Inference time: 0.14765572547912598 seconds
+2024/05/17 17:32:12:{'objects': [{'bounds': {'x1': 386, 'y1': 2871, 'x2': 354782, 'y2': 2871, 'x3': 354782, 'y3': 503937, 'x4': 386, 'y4': 503937}, 'confidence': 0.3010868430137634, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.14765572547912598}
+2024/05/17 17:32:13:yolo - Inference time: 0.11521053314208984 seconds
+2024/05/17 17:32:13:{'objects': [], 'all_classes': [], 'time': 0.11521053314208984}
+2024/05/17 17:32:13:yolo - Inference time: 0.11444544792175293 seconds
+2024/05/17 17:32:13:{'objects': [], 'all_classes': [], 'time': 0.11444544792175293}
+2024/05/17 17:32:13:yolo - Inference time: 0.11580634117126465 seconds
+2024/05/17 17:32:13:{'objects': [], 'all_classes': [], 'time': 0.11580634117126465}
+2024/05/17 17:32:13:yolo - Inference time: 0.11443853378295898 seconds
+2024/05/17 17:32:13:{'objects': [], 'all_classes': [], 'time': 0.11443853378295898}
+2024/05/17 17:32:13:yolo - Inference time: 0.11217761039733887 seconds
+2024/05/17 17:32:13:{'objects': [], 'all_classes': [], 'time': 0.11217761039733887}
+2024/05/17 17:32:14:yolo - Inference time: 0.1168069839477539 seconds
+2024/05/17 17:32:14:{'objects': [], 'all_classes': [], 'time': 0.1168069839477539}
+2024/05/17 17:32:14:yolo - Inference time: 0.11331796646118164 seconds
+2024/05/17 17:32:14:{'objects': [], 'all_classes': [], 'time': 0.11331796646118164}
+2024/05/17 17:32:14:yolo - Inference time: 0.11295270919799805 seconds
+2024/05/17 17:32:14:{'objects': [], 'all_classes': [], 'time': 0.11295270919799805}
+2024/05/17 17:32:14:yolo - Inference time: 0.11212491989135742 seconds
+2024/05/17 17:32:14:{'objects': [], 'all_classes': [], 'time': 0.11212491989135742}
+2024/05/17 17:32:15:yolo - Inference time: 0.11300826072692871 seconds
+2024/05/17 17:32:15:{'objects': [], 'all_classes': [], 'time': 0.11300826072692871}
+2024/05/17 17:32:15:yolo - Inference time: 0.11451148986816406 seconds
+2024/05/17 17:32:15:{'objects': [], 'all_classes': [], 'time': 0.11451148986816406}
+2024/05/17 17:32:15:yolo - Inference time: 0.11268854141235352 seconds
+2024/05/17 17:32:15:{'objects': [], 'all_classes': [], 'time': 0.11268854141235352}
+2024/05/17 17:32:15:yolo - Inference time: 0.11203670501708984 seconds
+2024/05/17 17:32:15:{'objects': [{'bounds': {'x1': 1240109, 'y1': 187426, 'x2': 1638400, 'y2': 187426, 'x3': 1638400, 'y3': 321597, 'x4': 1240109, 'y4': 321597}, 'confidence': 0.7089760303497314, 'tagName': 'military_tank'}, {'bounds': {'x1': 142584, 'y1': 300833, 'x2': 289520, 'y2': 300833, 'x3': 289520, 'y3': 348659, 'x4': 142584, 'y4': 348659}, 'confidence': 0.46457788348197937, 'tagName': 'military_tank'}], 'all_classes': [0, 0], 'time': 0.11203670501708984}
+2024/05/17 17:32:15:yolo - Inference time: 0.11271071434020996 seconds
+2024/05/17 17:32:15:{'objects': [{'bounds': {'x1': 1346570, 'y1': 190254, 'x2': 1638314, 'y2': 190254, 'x3': 1638314, 'y3': 317341, 'x4': 1346570, 'y4': 317341}, 'confidence': 0.7066269516944885, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11271071434020996}
+2024/05/17 17:32:16:yolo - Inference time: 0.11399626731872559 seconds
+2024/05/17 17:32:16:{'objects': [], 'all_classes': [], 'time': 0.11399626731872559}
+2024/05/17 17:32:16:yolo - Inference time: 0.11309361457824707 seconds
+2024/05/17 17:32:16:{'objects': [{'bounds': {'x1': 289568, 'y1': 52296, 'x2': 1635464, 'y2': 52296, 'x3': 1635464, 'y3': 518400, 'x4': 289568, 'y4': 518400}, 'confidence': 0.3471370339393616, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11309361457824707}
+2024/05/17 17:32:16:yolo - Inference time: 0.1140754222869873 seconds
+2024/05/17 17:32:16:{'objects': [{'bounds': {'x1': 292204, 'y1': 42418, 'x2': 1634151, 'y2': 42418, 'x3': 1634151, 'y3': 518400, 'x4': 292204, 'y4': 518400}, 'confidence': 0.3588747978210449, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.1140754222869873}
+2024/05/17 17:32:16:yolo - Inference time: 0.11387419700622559 seconds
+2024/05/17 17:32:16:{'objects': [{'bounds': {'x1': 294769, 'y1': 38296, 'x2': 1634702, 'y2': 38296, 'x3': 1634702, 'y3': 518400, 'x4': 294769, 'y4': 518400}, 'confidence': 0.4210599362850189, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11387419700622559}
+2024/05/17 17:32:17:yolo - Inference time: 0.11516356468200684 seconds
+2024/05/17 17:32:17:{'objects': [{'bounds': {'x1': 311357, 'y1': 36157, 'x2': 1636829, 'y2': 36157, 'x3': 1636829, 'y3': 518400, 'x4': 311357, 'y4': 518400}, 'confidence': 0.3068237900733948, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11516356468200684}
+2024/05/17 17:32:17:yolo - Inference time: 0.11475801467895508 seconds
+2024/05/17 17:32:17:{'objects': [{'bounds': {'x1': 314225, 'y1': 33358, 'x2': 1636986, 'y2': 33358, 'x3': 1636986, 'y3': 518400, 'x4': 314225, 'y4': 518400}, 'confidence': 0.3633817732334137, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11475801467895508}
+2024/05/17 17:32:17:yolo - Inference time: 0.11413216590881348 seconds
+2024/05/17 17:32:17:{'objects': [{'bounds': {'x1': 257320, 'y1': 29394, 'x2': 1634117, 'y2': 29394, 'x3': 1634117, 'y3': 518400, 'x4': 257320, 'y4': 518400}, 'confidence': 0.46929413080215454, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11413216590881348}
+2024/05/17 17:32:17:yolo - Inference time: 0.11378693580627441 seconds
+2024/05/17 17:32:17:{'objects': [{'bounds': {'x1': 261284, 'y1': 28321, 'x2': 1634078, 'y2': 28321, 'x3': 1634078, 'y3': 518400, 'x4': 261284, 'y4': 518400}, 'confidence': 0.40742045640945435, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11378693580627441}
+2024/05/17 17:32:17:yolo - Inference time: 0.11500096321105957 seconds
+2024/05/17 17:32:17:{'objects': [{'bounds': {'x1': 245244, 'y1': 23680, 'x2': 1634889, 'y2': 23680, 'x3': 1634889, 'y3': 518400, 'x4': 245244, 'y4': 518400}, 'confidence': 0.3321424126625061, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11500096321105957}
+2024/05/17 17:32:18:yolo - Inference time: 0.11458897590637207 seconds
+2024/05/17 17:32:18:{'objects': [{'bounds': {'x1': 218104, 'y1': 21208, 'x2': 1635477, 'y2': 21208, 'x3': 1635477, 'y3': 518400, 'x4': 218104, 'y4': 518400}, 'confidence': 0.349997341632843, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11458897590637207}
+2024/05/17 17:32:18:yolo - Inference time: 0.11357688903808594 seconds
+2024/05/17 17:32:18:{'objects': [{'bounds': {'x1': 263290, 'y1': 15809, 'x2': 1635123, 'y2': 15809, 'x3': 1635123, 'y3': 518400, 'x4': 263290, 'y4': 518400}, 'confidence': 0.28829753398895264, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11357688903808594}
+2024/05/17 17:32:18:yolo - Inference time: 0.11351251602172852 seconds
+2024/05/17 17:32:18:{'objects': [{'bounds': {'x1': 207443, 'y1': 13442, 'x2': 1638400, 'y2': 13442, 'x3': 1638400, 'y3': 518400, 'x4': 207443, 'y4': 518400}, 'confidence': 0.36622750759124756, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11351251602172852}
+2024/05/17 17:32:18:yolo - Inference time: 0.11488628387451172 seconds
+2024/05/17 17:32:18:{'objects': [{'bounds': {'x1': 290879, 'y1': 11114, 'x2': 1637319, 'y2': 11114, 'x3': 1637319, 'y3': 518400, 'x4': 290879, 'y4': 518400}, 'confidence': 0.3239710032939911, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11488628387451172}
+2024/05/17 17:32:19:yolo - Inference time: 0.11372089385986328 seconds
+2024/05/17 17:32:19:{'objects': [{'bounds': {'x1': 296278, 'y1': 7897, 'x2': 1637293, 'y2': 7897, 'x3': 1637293, 'y3': 518400, 'x4': 296278, 'y4': 518400}, 'confidence': 0.4653635621070862, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11372089385986328}
+2024/05/17 17:32:19:yolo - Inference time: 0.11468696594238281 seconds
+2024/05/17 17:32:19:{'objects': [], 'all_classes': [], 'time': 0.11468696594238281}
+2024/05/17 17:32:19:yolo - Inference time: 0.11478209495544434 seconds
+2024/05/17 17:32:19:{'objects': [], 'all_classes': [], 'time': 0.11478209495544434}
+2024/05/17 17:32:19:yolo - Inference time: 0.11301040649414062 seconds
+2024/05/17 17:32:19:{'objects': [], 'all_classes': [], 'time': 0.11301040649414062}
+2024/05/17 17:32:19:yolo - Inference time: 0.11324191093444824 seconds
+2024/05/17 17:32:19:{'objects': [], 'all_classes': [], 'time': 0.11324191093444824}
+2024/05/17 17:32:20:yolo - Inference time: 0.11435127258300781 seconds
+2024/05/17 17:32:20:{'objects': [], 'all_classes': [], 'time': 0.11435127258300781}
+2024/05/17 17:32:20:yolo - Inference time: 0.11344790458679199 seconds
+2024/05/17 17:32:20:{'objects': [], 'all_classes': [], 'time': 0.11344790458679199}
+2024/05/17 17:32:20:yolo - Inference time: 0.11286640167236328 seconds
+2024/05/17 17:32:20:{'objects': [], 'all_classes': [], 'time': 0.11286640167236328}
+2024/05/17 17:32:20:yolo - Inference time: 0.12385392189025879 seconds
+2024/05/17 17:32:20:{'objects': [{'bounds': {'x1': 929272, 'y1': 29894, 'x2': 1638400, 'y2': 29894, 'x3': 1638400, 'y3': 496863, 'x4': 929272, 'y4': 496863}, 'confidence': 0.2985033392906189, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.12385392189025879}
+2024/05/17 17:32:21:yolo - Inference time: 0.1124272346496582 seconds
+2024/05/17 17:32:21:{'objects': [], 'all_classes': [], 'time': 0.1124272346496582}
+2024/05/17 17:32:21:yolo - Inference time: 0.11319613456726074 seconds
+2024/05/17 17:32:21:{'objects': [], 'all_classes': [], 'time': 0.11319613456726074}
+2024/05/17 17:32:21:yolo - Inference time: 0.11297106742858887 seconds
+2024/05/17 17:32:21:{'objects': [], 'all_classes': [], 'time': 0.11297106742858887}
+2024/05/17 17:32:21:yolo - Inference time: 0.11316895484924316 seconds
+2024/05/17 17:32:21:{'objects': [], 'all_classes': [], 'time': 0.11316895484924316}
+2024/05/17 17:32:22:yolo - Inference time: 0.11638832092285156 seconds
+2024/05/17 17:32:22:{'objects': [], 'all_classes': [], 'time': 0.11638832092285156}
+2024/05/17 17:32:22:yolo - Inference time: 0.11348700523376465 seconds
+2024/05/17 17:32:22:{'objects': [], 'all_classes': [], 'time': 0.11348700523376465}
+2024/05/17 17:32:22:yolo - Inference time: 0.11410808563232422 seconds
+2024/05/17 17:32:22:{'objects': [], 'all_classes': [], 'time': 0.11410808563232422}
+2024/05/17 17:32:22:yolo - Inference time: 0.11345529556274414 seconds
+2024/05/17 17:32:22:{'objects': [], 'all_classes': [], 'time': 0.11345529556274414}
+2024/05/17 17:32:23:yolo - Inference time: 0.11238288879394531 seconds
+2024/05/17 17:32:23:{'objects': [], 'all_classes': [], 'time': 0.11238288879394531}
+2024/05/17 17:32:23:yolo - Inference time: 0.1131737232208252 seconds
+2024/05/17 17:32:23:{'objects': [], 'all_classes': [], 'time': 0.1131737232208252}
+2024/05/17 17:32:23:yolo - Inference time: 0.11257314682006836 seconds
+2024/05/17 17:32:23:{'objects': [], 'all_classes': [], 'time': 0.11257314682006836}
+2024/05/17 17:32:23:yolo - Inference time: 0.11315369606018066 seconds
+2024/05/17 17:32:23:{'objects': [], 'all_classes': [], 'time': 0.11315369606018066}
+2024/05/17 17:32:23:yolo - Inference time: 0.11632990837097168 seconds
+2024/05/17 17:32:23:{'objects': [{'bounds': {'x1': 1568171, 'y1': 65036, 'x2': 1638400, 'y2': 65036, 'x3': 1638400, 'y3': 258386, 'x4': 1568171, 'y4': 258386}, 'confidence': 0.27652421593666077, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11632990837097168}
+2024/05/17 17:32:24:yolo - Inference time: 0.11245584487915039 seconds
+2024/05/17 17:32:24:{'objects': [], 'all_classes': [], 'time': 0.11245584487915039}
+2024/05/17 17:32:24:yolo - Inference time: 0.11270260810852051 seconds
+2024/05/17 17:32:24:{'objects': [], 'all_classes': [], 'time': 0.11270260810852051}
+2024/05/17 17:32:24:yolo - Inference time: 0.11253190040588379 seconds
+2024/05/17 17:32:24:{'objects': [], 'all_classes': [], 'time': 0.11253190040588379}
+2024/05/17 17:32:24:yolo - Inference time: 0.11274290084838867 seconds
+2024/05/17 17:32:24:{'objects': [], 'all_classes': [], 'time': 0.11274290084838867}
+2024/05/17 17:32:25:yolo - Inference time: 0.11333489418029785 seconds
+2024/05/17 17:32:25:{'objects': [{'bounds': {'x1': 210, 'y1': 97060, 'x2': 288564, 'y2': 97060, 'x3': 288564, 'y3': 514190, 'x4': 210, 'y4': 514190}, 'confidence': 0.5514797568321228, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11333489418029785}
+2024/05/17 17:32:25:yolo - Inference time: 0.11369895935058594 seconds
+2024/05/17 17:32:25:{'objects': [{'bounds': {'x1': 0, 'y1': 81255, 'x2': 280474, 'y2': 81255, 'x3': 280474, 'y3': 515542, 'x4': 0, 'y4': 515542}, 'confidence': 0.6956868171691895, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11369895935058594}
+2024/05/17 17:32:25:yolo - Inference time: 0.11386466026306152 seconds
+2024/05/17 17:32:25:{'objects': [{'bounds': {'x1': 90, 'y1': 50029, 'x2': 273581, 'y2': 50029, 'x3': 273581, 'y3': 516543, 'x4': 90, 'y4': 516543}, 'confidence': 0.45186811685562134, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11386466026306152}
+2024/05/17 17:32:25:yolo - Inference time: 0.11378836631774902 seconds
+2024/05/17 17:32:25:{'objects': [{'bounds': {'x1': 0, 'y1': 20080, 'x2': 276616, 'y2': 20080, 'x3': 276616, 'y3': 517803, 'x4': 0, 'y4': 517803}, 'confidence': 0.30463266372680664, 'tagName': 'military_tank'}], 'all_classes': [0], 'time': 0.11378836631774902}
+2024/05/17 17:32:26:yolo - Inference time: 0.11355900764465332 seconds
+2024/05/17 17:32:26:{'objects': [], 'all_classes': [], 'time': 0.11355900764465332}
+2024/05/17 17:32:26:yolo - Inference time: 0.11403608322143555 seconds
+2024/05/17 17:32:26:{'objects': [], 'all_classes': [], 'time': 0.11403608322143555}
+2024/05/17 17:32:26:yolo - Inference time: 0.11678624153137207 seconds
+2024/05/17 17:32:26:{'objects': [], 'all_classes': [], 'time': 0.11678624153137207}
+2024/05/17 17:32:26:yolo - Inference time: 0.11353087425231934 seconds
+2024/05/17 17:32:26:{'objects': [{'bounds': {'x1': 3500, 'y1': 0, 'x2': 1128098, 'y2': 0, 'x3': 1128098, 'y3': 507946, 'x4': 3500, 'y4': 507946}, 'confidence': 0.32618212699890137, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11353087425231934}
+2024/05/17 17:32:26:yolo - Inference time: 0.11344766616821289 seconds
+2024/05/17 17:32:26:{'objects': [{'bounds': {'x1': 2296, 'y1': 0, 'x2': 1121969, 'y2': 0, 'x3': 1121969, 'y3': 508202, 'x4': 2296, 'y4': 508202}, 'confidence': 0.25062721967697144, 'tagName': 'military_truck'}], 'all_classes': [1], 'time': 0.11344766616821289}
+2024/05/17 17:32:27:yolo - Inference time: 0.11415219306945801 seconds
+2024/05/17 17:32:27:{'objects': [], 'all_classes': [], 'time': 0.11415219306945801}
+2024/05/17 17:32:27:yolo - Inference time: 0.11347270011901855 seconds
+2024/05/17 17:32:27:{'objects': [], 'all_classes': [], 'time': 0.11347270011901855}
+2024/05/17 17:45:20:yolo - Inference time: 0.8684306144714355 seconds
+2024/05/17 17:45:21:yolo - Inference time: 7.534027099609375e-05 seconds
+2024/05/18 20:35:35:yolo - Inference time: 1.0593442916870117 seconds

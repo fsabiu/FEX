@@ -14,6 +14,7 @@ def create_writer(rtsp_url,width,height,fps):
     
     # Create VideoWriter object
     out = cv2.VideoWriter('appsrc ! videoconvert' + \
+        # ' !videorate max-rate=4 ' + \
         ' ! video/x-raw,format=I420' + \
         ' ! x264enc speed-preset=medium bitrate=800 key-int-max=' + str(fps*2) + \
         ' ! video/x-h264,profile=baseline' + \
