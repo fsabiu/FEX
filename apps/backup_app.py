@@ -115,7 +115,7 @@ def annotate_img_opencv(image, annotations, pixel_mask, telemetry, frame_no):
             [(845, 710), (845, 675), (950, 675), (950, 710)],
             [(1050, 602), (1215, 602), (1215, 710), (1050, 710)]
         ],
-        [ # arriba
+        [
             [(50, 540), (100, 540), (100, 560), (50,560)],
             [(50, 470), (100, 470), (100, 490), (50,490)],
             [(55, 395), (100, 395), (100, 415), (55,415)],
@@ -152,11 +152,10 @@ def annotate_img_opencv(image, annotations, pixel_mask, telemetry, frame_no):
         if "id" in annotation:
             ob_id = annotation["id"]
         tag_name = annotation.get("tagName")
-        if tag_name == "car" and annotation['model_id'] == 1:
-            tag_name = "BMP-1"
-        if tag_name == "hidden object" or tag_name == "hidden object":
-            tag_name = "BMP-1"
-        
+        # if tag_name == "car" and annotation['model_id'] == 1:
+        #     tag_name = "hidden object"
+        #if tag_name == "hidden object":
+        #    tag_name = "vehicle"
         confidence = round(float(annotation.get("confidence")), 2)
         text= str(tag_name)+" - "+str(confidence) +f" id:{ob_id}, {annotation['model_id']}"
         
@@ -238,17 +237,17 @@ def create_writer_hls(hls_url,width,height,fps):
 
 def read_drone_info(): # TO DO
     drone_dict = {}
-    drone_dict["lat_dron"] -1
-    drone_dict["lon_dron"] -1
-    drone_dict["h_dron"] -1  # Drone altitude in meters
-    drone_dict["pitch"] -1  # Camera pitch in degrees
-    drone_dict["yaw"] -1  # Azimuth in degrees
-    drone_dict["roll"] -1  # Roll in degrees
-    drone_dict["f"] -1  # Camera focal length in mm
-    drone_dict["img_width"] -1  # Image width in pixels
-    drone_dict["img_height"] -1  # Image height in pixels
-    drone_dict["x_pixel"] -1  # x-coordinate of the pixel
-    drone_dict["y_pixel"] -1  # y-coordinate of the pixel
+    drone_dict["lat_dron"] = -1
+    drone_dict["lon_dron"] = -1
+    drone_dict["h_dron"] = -1  # Drone altitude in meters
+    drone_dict["pitch"] = -1  # Camera pitch in degrees
+    drone_dict["yaw"] = -1  # Azimuth in degrees
+    drone_dict["roll"] = -1  # Roll in degrees
+    drone_dict["f"] = -1  # Camera focal length in mm
+    drone_dict["img_width"] = -1  # Image width in pixels
+    drone_dict["img_height"] = -1  # Image height in pixels
+    drone_dict["x_pixel"] = -1  # x-coordinate of the pixel
+    drone_dict["y_pixel"] = -1  # y-coordinate of the pixel
 
     return drone_dict
 
@@ -285,14 +284,63 @@ def fromKLV(metadata_set):
 
     return drone_dict
 
+def read_frames_original(stream_url, aggr_queue, queues, to_print=False):
+    try:
+        if to_print:
+            print("read_frames is printing")
+
+        cap = None
+        while cap is None or not cap.isOpened():
+            cap = cv2.VideoCapture(stream_url)
+            if not cap.isOpened():
+                print("Unable to open stream, retrying in 1 second...")
+                time.sleep(1)
+
+        frames = 0
+        while True:
+            start = time.time()
+            ret, frame = cap.read()
+            # metadata read function 
+            if not ret or frame is None:
+                cap.release()  # Release the current capture before reinitializing
+                if not cap.isOpened():
+                    print("Unable to open stream, retrying in 1 seconds...")
+                    time.sleep(1)
+                cap = cv2.VideoCapture(stream_url)
+                continue
+            
+            frames += 1
+            # Read drone coordinates
+            drone_dict = read_drone_info() # TO DO
+
+            aggr_queue.put((frame, drone_dict))
+            if frames % 300 == 0:
+                print(f"Reading... - frame {frames}")
+            for queue in queues:
+                queue.put(frame)
+
+            if to_print:
+                elapsed = time.time() - start
+                print("fps_so_far:", 1 / elapsed)
+
+    except KeyboardInterrupt:
+        pass
+    except RuntimeError as E:
+        print(E)
+    finally:
+        if cap is not None:
+            cap.release()
+    print("read_frames completed")
+    
 def read_frames(source, aggr_queue, queues, to_print=False):
     print("starting read_frames")
+    n_frames = 0
     while True:
         try:
             if to_print:
                 print("read_frames is opening the source")
 
-            av.logging.set_level(3)
+            #av.logging.set_level(3)
             with av.open(source, 
                     mode='r', 
                     options={
@@ -346,13 +394,16 @@ def read_frames(source, aggr_queue, queues, to_print=False):
                         drone_dict = None
 
                     for frame in frames:
-                        img = frame.to_ndarray(format='bgr24')
-                        aggr_queue.put((img, drone_dict))
-                        for queue in queues:
-                            queue.put(img)
+                        n_frames = n_frames + 1
+                        if n_frames > 100:
+                            img = frame.to_ndarray(format='bgr24')
+                            print(np.shape(img))
+                            aggr_queue.put((img, drone_dict))
+                            for queue in queues:
+                                queue.put(img)
 
                     end_read = time.time()
-                    print(f"Reading time {end_read - start_read}")
+                    print(f"Read time {end_read - start_read}")
                     pts_last = packet.pts
 
             print("container safely closed, will try reopening in 1 second")
@@ -374,6 +425,7 @@ def predictor(model_path, queue_in, queue_out, p_id):
     try:
         model = YOLO(model_path)
         while True:
+            before_read = time.time()
             frame = queue_in.get()
             start = time.time()
             #results = model.track(source=frame, device=f'cuda:{p_id}', verbose=False, persist=True)
@@ -381,7 +433,9 @@ def predictor(model_path, queue_in, queue_out, p_id):
             end = time.time()
             res_dict = utils_yolo.get_result_dict(model, results[0])
             res_dict["yolo_producer"] = p_id
-            # print(f"elapsed {end-start}")
+            print(f"Predictor elapsed {end-start}")
+            print(f"Predictor waited read_frames for {start-before_read}")
+
             queue_out.put({"yolo_producer": p_id, "res_dict": res_dict})
     except KeyboardInterrupt:
         pass
@@ -406,7 +460,8 @@ async def send_geojson_periodically(websocket, objects_history, interval=1):
     """Envía el FeatureCollection a intervalos regulares."""
     while True:
         if websocket.open:
-            recent_objects_list = get_most_recent_versions(objects_history)
+            copied_objects_history = objects_history.copy()
+            recent_objects_list = get_most_recent_versions(copied_objects_history)
             features_list = []
             for obj in recent_objects_list:
                 if obj["tagName"] == "drone":
@@ -469,7 +524,6 @@ def gen_cot_detection(obj,lat,lon,h):
     root.set("type", object2COT(obj))  # insert your type of marker
     root.set("uid", 'oracle_'+''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8)))
     root.set("how", "a")
-    root.set("object", obj)
     root.set("time", pytak.cot_time())
     root.set("start", pytak.cot_time())
     root.set(
@@ -479,7 +533,9 @@ def gen_cot_detection(obj,lat,lon,h):
     pt_attr = {
         "lat": str(lat),  
         "lon": str(lon),  
-        "hae": str(h)
+        "hae": str(h),
+        "ce": "",
+        "le": "",
     }
 
     ET.SubElement(root, "point", attrib=pt_attr)
@@ -525,27 +581,30 @@ import secrets
 import string
 
 async def handle_tak_message(cot_url, tak_history, tak_frequency):
+    
+    # config = getConfig(cot_url)
+    # clitool = pytak.CLITool(config)
+    # await clitool.setup()
 
-    config = getConfig(cot_url)
-    clitool = pytak.CLITool(config)
-    await clitool.setup()
-    while True:
-        recent_objects_list = get_most_recent_versions(tak_history)
-        print("Object list")
-        print(recent_objects_list)
+    # while True:
+    #     recent_objects_list = get_most_recent_versions(tak_history)
+    #     print("Object list")
+    #     print(len(recent_objects_list))
+    #     #sender = MySender(clitool.tx_queue, config, object_type, lat, lon, h)
+    #     #clitool.add_tasks(set([sender]))
+    #     # Start all tasks.
+    #     #await clitool.run()
+    #     tasks = []
+    #     for obj in recent_objects_list:
+    #         sender = MySender(clitool.tx_queue, config, obj["tagName"], "50.734347105368215", "21.948178672207604", "100")
+    #         #clitool.add_tasks(set([sender]))
+    #         tasks.append(sender.run())
+    #         # Start all tasks.
+    #         #await clitool.run()
+    #         #print("Sent")
 
-        for obj in recent_objects_list:
-            if obj["tagName"] == "drone":
-                h_drone = obj["h_dron"] if "h_dron" in obj else 0
-                sender = MySender(clitool.tx_queue, config, obj["tagName"], obj["lat_dron"], obj["lon_dron"], h_drone)
-            else:
-                sender = MySender(clitool.tx_queue, config, obj["tagName"], obj["lat"], obj["lon"], 0)
-            #clitool.add_tasks(set([sender]))
-            clitool.add_tasks(set([sender]))
-            # Start all tasks.
-            #await clitool.run()
-            #print("Sent")
-            await clitool.run()
+    #     await asyncio.gather(*tasks)
+
         await asyncio.sleep(1/tak_frequency)
             
 
@@ -553,18 +612,26 @@ async def handle_tak_message(cot_url, tak_history, tak_frequency):
 def backend(objects_queue, objects_history, tak_history, max_history_size, tak_history_length, to_print = False):
 
     while True:
-        start = time.time
+        start = time.time()
         detected_objects = objects_queue.get()
         if to_print:
             print("Backend: history size: " + str(len(objects_history)))
 
+        start_oh = time.time()
         objects_history.append(detected_objects)
         if len(objects_history) > max_history_size:
             objects_history.pop(0)
-
+        end_oh = time.time()
+        
+        start_tak = time.time()
         tak_history.append(detected_objects)
         if len(tak_history) > tak_history_length:
             tak_history.pop(0)
+        end = time.time()
+        
+        print(f"Backend: {end-start}")
+        print(f"Backend object history: {end_oh-start_oh}")
+        print(f"Tak object history: {end-start_tak}")
 
     return
 
@@ -635,9 +702,9 @@ def update_objects_coordinates(filtered_objects, drone_dict, frame_h, frame_w, c
         else:
             for obj in filtered_objects:
                 x_pixel, y_pixel = calculate_central_point(obj)
-                obj_lat, obj_lon = pixel_to_gps_old(drone_dict["lat_dron"], drone_dict["lon_dron"], 
+                obj_lat, obj_lon = pixel_to_gps(drone_dict["lat_dron"], drone_dict["lon_dron"], 
                     drone_dict["h_dron"], drone_dict["pitch"], drone_dict["yaw"], 
-                    drone_dict["roll"], drone_dict["fov_h"], frame_w, frame_h, x_pixel, y_pixel)
+                    drone_dict["roll"], drone_dict["fov_h"],drone_dict["fov_v"], frame_w, frame_h, x_pixel, y_pixel)
                 obj["lat"] = obj_lat
                 obj["lon"] = obj_lon
     else:
@@ -663,67 +730,10 @@ def calculate_central_point(obj):
     
     return x, y
 
-def pixel_to_gps_ga(lat_dron, lon_dron, h_dron, pitch, yaw, roll, fov_horizontal, fov_vertical, img_width, img_height, x_pixel, y_pixel):
-    # Altura de la cámara desde el suelo (corregida)
-    h_dron = h_dron - 150
-    
-    # Convertir grados a radianes
-    pitch = np.radians(pitch)
-    yaw = np.radians(yaw)
-    roll = np.radians(roll)
-    
-    # Calcular la longitud focal en píxeles a partir de los FOV horizontales y verticales
-    f_horizontal = (img_width / 2) / np.tan(np.radians(fov_horizontal) / 2)
-    f_vertical = (img_height / 2) / np.tan(np.radians(fov_vertical) / 2)
-    
-    # Parámetros de la Tierra
-    R_EARTH = 6371e3  # Radio de la Tierra en metros
-    
-    # Convertir píxeles a coordenadas de la cámara
-    Z_cam = h_dron
-    X_cam = (x_pixel - img_width / 2) * Z_cam / f_horizontal
-    Y_cam = (y_pixel - img_height / 2) * Z_cam / f_vertical
-    
-    # Matrices de rotación
-    R_yaw = np.array([
-        [np.cos(yaw), -np.sin(yaw), 0],
-        [np.sin(yaw), np.cos(yaw), 0],
-        [0, 0, 1]
-    ])
-    
-    R_pitch = np.array([
-        [np.cos(pitch), 0, np.sin(pitch)],
-        [0, 1, 0],
-        [-np.sin(pitch), 0, np.cos(pitch)]
-    ])
-    
-    R_roll = np.array([
-        [1, 0, 0],
-        [0, np.cos(roll), -np.sin(roll)],
-        [0, np.sin(roll), np.cos(roll)]
-    ])
-    
-    # Matriz de rotación combinada
-    R = R_roll @ R_pitch @ R_yaw
-    
-    # Transformar coordenadas de la cámara al marco global
-    cam_coords = np.array([X_cam, Y_cam, Z_cam])
-    global_coords = R @ cam_coords
-    
-    # Convertir coordenadas globales a deltas GPS
-    d_lat = global_coords[1] / R_EARTH * (180 / np.pi)
-    d_lon = global_coords[0] / (R_EARTH * np.cos(np.radians(lat_dron))) * (180 / np.pi)
-    
-    # Nuevas coordenadas GPS
-    new_lat = lat_dron + d_lat
-    new_lon = lon_dron + d_lon
-    
-    return new_lat, new_lon
-
 
 def pixel_to_gps(lat_dron, lon_dron, h_dron, pitch, yaw, roll, fov_horizontal, fov_vertical, img_width, img_height, x_pixel, y_pixel):
     # Altura de la cámara desde el suelo (corregida)
-    h_dron = h_dron - 150
+    h_dron = h_dron - 140
     pitch = 90 + pitch
     yaw = 90 - yaw
     
@@ -861,6 +871,7 @@ def consumer(queue_in, pixel_mask, backend_queue, fps, camera_f, to_print = Fals
         while True:
             #print(f"qsize: {queue_in.qsize()}")
             processed_frame = queue_in.get()
+            time_read_queue = time.time()
             frame = processed_frame["frame"]
             res_dicts = processed_frame["res_dicts"]
             drone_dict = processed_frame["drone_dict"]
@@ -892,10 +903,11 @@ def consumer(queue_in, pixel_mask, backend_queue, fps, camera_f, to_print = Fals
                 
                 filtered_objects.append(drone_object)
                 
-                backend_queue.put(filtered_objects)
+                backend_queue.put(filtered_objects) # We are writing here each 38ms
                 out.write(annotated_frame)
                 end = time.time()
-                print(f"elapsed {end-last_end}")
+                print(f"consumer elapsed {end-last_end}")
+                print(f"consumer elapsed - read {end-time_read_queue}")
                 last_end = end
 
                 if frames % 300 == 0 :  
@@ -1000,10 +1012,10 @@ if __name__ == "__main__":
     n_producers = 2
 
     # Video mask
-    pixel_mask = 2 # 0, 1 or 2
+    pixel_mask = 1 # 0, 1 or 2
 
     # Camera images
-    fps = 25
+    fps = 30
     camera_f = 22 # Used for gps estimation
 
     # Data to frontend
@@ -1040,25 +1052,25 @@ if __name__ == "__main__":
     yolo_confidence_filters = [
         {
             "pedestrian": 0.7, 
-            "car": 0.60, 
+            "car": 0.70, 
             "van": 0.65,
             "truck": 0.6, 
-            "military_tank": 0.6, 
-            "military_truck": 0.6, 
-            "military_vehicle": 0.6,  
-            "military vehicle": 0.6
+            "military_tank": 0.50, 
+            "military_truck": 0.5, 
+            "military_vehicle": 0.5,  
+            "military vehicle": 0.5
         },
         #dict(military_tank=0.05, military_truck=0.05),
         {
-            "BMP-1": 0.5,
-            "Rosomak": 0.5,
-            "T72": 0.5,
-            "car": 0.4,
-            "military vehicle": 0.6,
+            "BMP-1": 0.3,
+            "Rosomak": 0.3,
+            "T72": 0.3,
+            "car": 0.7,
+            "military vehicle": 0.5,
             "people": 0.7,
             "soldier": 0.6,
             "trench": 0.7,
-            "hidden object": 0.99
+            "hidden object": 0.6
         }
     ]
 
