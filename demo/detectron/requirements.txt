@@ -1,0 +1,8 @@
+conda create -n DETECTRON python=3.8
+  333  conda activate DETECTRON
+  334  conda install pytorch torchvision torchaudio cudatoolkit=11.0 -c pytorch
+  335  pip install cython
+  336  git clone https://github.com/facebookresearch/detectron2.git
+  337  cd detectron2/
+  338  pip install -e .
+  339  pip install opencv-python
