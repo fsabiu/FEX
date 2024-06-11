@@ -1,0 +1,3 @@
+[submodule "front_end/image-recognition-app"]
+	path = front_end/image-recognition-app
+	url = https://github.com/tb-j/image-recognition-app.git
