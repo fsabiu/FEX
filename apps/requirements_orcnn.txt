@@ -1,3 +1,31 @@
-flask_api
-flask_cors
+# Flask and web framework dependencies
+flask_api==3.1
+flask_cors==6.0.0
+Flask==2.3.1
 Werkzeug==2.3.0
+
+# PyTorch with CUDA support (for CUDA 11.6)
+torch==1.13.1+cu116
+torchvision==0.14.1+cu116
+torchaudio==0.13.1+cu116
+
+# OpenMMLab packages for oriented object detection
+mmcv-full==1.7.2
+mmdet==2.28.2
+mmrotate==0.3.4
+
+# Core scientific computing packages
+numpy==1.26.4
+opencv-python==4.11.0.86
+pillow==11.2.1
+scipy==1.13.1
+
+# Additional ML and utility packages
+pycocotools==2.0.10
+PyYAML==6.0.2
+matplotlib==3.9.4
+requests==2.28.2
+tqdm==4.65.2
+
+# Package management
+openmim==0.3.9
