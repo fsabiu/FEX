@@ -67,6 +67,8 @@ def formatResponse(response, list_field, page, limit):
 def app_init():
     global orcnn_model
     orcnn_model = load_orcnn()
+    # Temporarily disable SSL for testing
+    # app.run(host='0.0.0.0', port=2053, debug=True)
     app.run(host='0.0.0.0', port=2053, debug=True, ssl_context=('cert/cert.pem', 'cert/ck.pem'))
 
 if __name__ == "__main__":

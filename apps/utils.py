@@ -12,9 +12,11 @@ import os
 import subprocess
 from PIL import Image
 import time
+import torch
 
 def detect_orcnn(model_dict, b64_image, confidence):
     model = model_dict["model"]
+    device = model_dict["device"]
 
     start_time = time.time()
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -37,8 +39,23 @@ def detect_orcnn(model_dict, b64_image, confidence):
         img_array = img_array[:, :, :3]  # Drop the last channel (alpha channel)
 
     writeLog("logs_orcnn.txt", "orcnn - Image shape: " + str(np.shape(img_array)))
-    # Detection
-    result = inference_detector(model, img_array)
+    
+    # Ensure model is on the correct device and in eval mode
+    model.to(device)
+    model.eval()
+    
+    # Detection with error handling for device issues
+    try:
+        result = inference_detector(model, img_array)
+    except RuntimeError as e:
+        if "indices should be either on cpu or on the same device" in str(e) or "CUDA" in str(e):
+            writeLog("logs_orcnn.txt", f"orcnn - GPU inference failed: {str(e)}, falling back to CPU")
+            # Move model to CPU and retry
+            model.to('cpu')
+            device = 'cpu'
+            result = inference_detector(model, img_array)
+        else:
+            raise e
     
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -128,8 +145,14 @@ def load_orcnn():
     else:
         print("Model and config file already exist.")
 
-    # Set the device to be used for evaluation
-    device='cuda:0'
+    # Set the device to be used for evaluation with fallback
+    import torch
+    if torch.cuda.is_available():
+        device = 'cuda:0'
+        writeLog("logs_orcnn.txt", "orcnn - Using GPU for inference")
+    else:
+        device = 'cpu'
+        writeLog("logs_orcnn.txt", "orcnn - CUDA not available, using CPU for inference")
 
     # Load the config
     config = mmcv.Config.fromfile(config_file)
@@ -139,8 +162,13 @@ def load_orcnn():
     # Initialize the detector
     model = build_detector(config.model)
 
-    # Load checkpoint
-    checkpoint = load_checkpoint(model, checkpoint_file, map_location=device)
+    # Load checkpoint with appropriate device mapping
+    try:
+        checkpoint = load_checkpoint(model, checkpoint_file, map_location=device)
+    except Exception as e:
+        writeLog("logs_orcnn.txt", f"orcnn - Failed to load on {device}, trying CPU: {str(e)}")
+        device = 'cpu'
+        checkpoint = load_checkpoint(model, checkpoint_file, map_location=device)
 
     # Set the classes of models for inference
     model.CLASSES = checkpoint['meta']['CLASSES']
@@ -148,7 +176,7 @@ def load_orcnn():
     # We need to set the model's cfg for inference
     model.cfg = config
 
-    # Convert the model to GPU
+    # Convert the model to the target device
     model.to(device)
     # Convert the model into evaluation mode
     model.eval()
