@@ -2,6 +2,7 @@
 /apps/logs/
 /apps/models/
 
+/runs/
 
 /demo/yolov8l-world.pt
 /demo/yolov8m-world.pt
@@ -11,3 +12,6 @@
 /scripts/frames
 /scripts/stream
 /apps/__pycache__
+
+# YOLO model files
+*.pt

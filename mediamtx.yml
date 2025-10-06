@@ -1,0 +1,121 @@
+# MediaMTX Configuration for HLS Streaming with Metadata Support
+#
+# This configuration enables:
+# - RTSP input from inference script
+# - HLS output for web/mobile playback
+# - Metadata passthrough in MPEG-TS segments
+
+###############################################################################
+# Global Settings
+###############################################################################
+
+# Log level: debug, info, warn, error
+logLevel: info
+logDestinations: [stdout]
+
+# API server for monitoring
+api: yes
+apiAddress: :9997
+
+# Metrics
+metrics: yes
+metricsAddress: :9998
+
+###############################################################################
+# RTSP Server Settings
+###############################################################################
+
+# RTSP server
+rtspAddress: :8554
+protocols: [tcp, udp]
+encryption: "no"
+rtspAddress: :8554
+
+# Authentication (disabled for localhost)
+authMethod: internal
+
+###############################################################################
+# HLS Settings  
+###############################################################################
+
+# Enable HLS
+hls: yes
+hlsAddress: :8888
+
+# HLS segment settings
+hlsSegmentCount: 10           # Number of segments to keep
+hlsSegmentDuration: 1s        # Duration of each segment
+hlsPartDuration: 200ms        # Duration of each part (for low latency)
+hlsSegmentMaxSize: 50M        # Maximum size of each segment
+
+# Always remux (important for metadata)
+hlsAlwaysRemux: yes
+
+# Low-latency HLS
+hlsVariant: lowLatency
+
+# Allow CORS for web players
+hlsAllowOrigin: "*"
+
+# Encryption (disabled for simplicity)
+hlsEncryption: no
+
+###############################################################################
+# Path Configuration
+###############################################################################
+
+paths:
+  # Main detection stream
+  detected_stream:
+    # Source from inference script
+    source: publisher
+    
+    # Allow localhost to publish
+    publishUser: ""
+    publishPass: ""
+    publishIPs: [127.0.0.1, 0.0.0.0/0]
+    
+    # Allow anyone to read (adjust for production)
+    readUser: ""
+    readPass: ""
+    readIPs: [0.0.0.0/0]
+    
+    # Recording (optional)
+    record: no
+    # recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S
+    
+    # Run on demand (optional - for testing)
+    # runOnDemand: ffmpeg -re -i input.mp4 -c copy -f rtsp rtsp://localhost:8554/detected_stream
+    # runOnDemandRestart: yes
+  
+  # Alternative test stream (if needed)
+  test_stream:
+    source: publisher
+    publishIPs: [0.0.0.0/0]
+    readIPs: [0.0.0.0/0]
+
+  # Wildcard for any other streams
+  all:
+    source: publisher
+    publishIPs: [127.0.0.1]
+    readIPs: [0.0.0.0/0]
+
+###############################################################################
+# WebRTC (Optional - for ultra-low latency)
+###############################################################################
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcICEServers: []
+
+###############################################################################
+# Recording (Optional)
+###############################################################################
+
+# Enable global recording
+# record: yes
+# recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+# recordFormat: fmp4
+# recordSegmentDuration: 1h
+# recordDeleteAfter: 24h
+

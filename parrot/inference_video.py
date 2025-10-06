@@ -148,7 +148,9 @@ class RTSPInference:
             
             # Set up VideoWriter for RTSP output using GStreamer
             gst_str = (
-                f'appsrc ! videoconvert ! x264enc tune=zerolatency bitrate=2000 ! '
+                f'appsrc ! videoconvert ! '
+                f'x264enc tune=zerolatency bitrate=4096 speed-preset=medium ! '
+                f'video/x-h264, profile=high ! '
                 f'h264parse ! rtspclientsink location={self.output_rtsp} protocols=tcp'
             )
             
