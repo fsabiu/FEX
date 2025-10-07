@@ -107,25 +107,106 @@ class KLVDecoder:
 
                 try:
                     if tag == 2:
-                        telemetry['timestamp_us'] = struct.unpack('>Q', value_bytes)[0]
-                    elif tag == 13:
-                        scaled = struct.unpack('>i', value_bytes)[0]
-                        telemetry['latitude'] = scaled / 1e7
-                    elif tag == 14:
-                        scaled = struct.unpack('>i', value_bytes)[0]
-                        telemetry['longitude'] = scaled / 1e7
-                    elif tag == 15:
-                        scaled = struct.unpack('>H', value_bytes)[0]
-                        telemetry['altitude'] = scaled / 10.0
+                        # Unix Timestamp (microseconds, 8-byte unsigned int)
+                        if item_length == 8:
+                            telemetry['timestamp_us'] = struct.unpack('>Q', value_bytes)[0]
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 2")
                     elif tag == 5:
-                        scaled = struct.unpack('>h', value_bytes)[0]
-                        telemetry['roll'] = scaled / 100.0
+                        # Platform Roll (degrees, 2-byte signed int scaled by 100)
+                        if item_length == 2:
+                            scaled = struct.unpack('>h', value_bytes)[0]
+                            telemetry['roll'] = scaled / 100.0
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 5")
                     elif tag == 6:
-                        scaled = struct.unpack('>h', value_bytes)[0]
-                        telemetry['pitch'] = scaled / 100.0
+                        # Platform Pitch (degrees, 2-byte signed int scaled by 100)
+                        if item_length == 2:
+                            scaled = struct.unpack('>h', value_bytes)[0]
+                            telemetry['pitch'] = scaled / 100.0
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 6")
                     elif tag == 7:
-                        scaled = struct.unpack('>H', value_bytes)[0]
-                        telemetry['heading'] = scaled / 100.0
+                        # Platform Heading (degrees, 2-byte unsigned int scaled by 100)
+                        if item_length == 2:
+                            scaled = struct.unpack('>H', value_bytes)[0]
+                            telemetry['heading'] = scaled / 100.0
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 7")
+                    elif tag == 13:
+                        # Sensor Latitude (degrees, 4-byte signed int scaled by 1e7)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['latitude'] = scaled / 1e7
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 13")
+                    elif tag == 14:
+                        # Sensor Longitude (degrees, 4-byte signed int scaled by 1e7)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['longitude'] = scaled / 1e7
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 14")
+                    elif tag == 15:
+                        # Sensor Altitude (meters, 2-byte unsigned int scaled by 10)
+                        if item_length == 2:
+                            scaled = struct.unpack('>H', value_bytes)[0]
+                            telemetry['altitude'] = scaled / 10.0
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 15")
+                    elif tag == 18:
+                        # Sensor Horizontal Field of View (degrees, 2-byte unsigned int scaled by 100)
+                        if item_length == 2:
+                            scaled = struct.unpack('>H', value_bytes)[0]
+                            telemetry['sensor_h_fov'] = scaled / 100.0
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 18")
+                    elif tag == 19:
+                        # Sensor Vertical Field of View (degrees, 2-byte unsigned int scaled by 100)
+                        if item_length == 2:
+                            scaled = struct.unpack('>H', value_bytes)[0]
+                            telemetry['sensor_v_fov'] = scaled / 100.0
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 19")
+                    elif tag == 21:
+                        # Gimbal Roll / Sensor Relative Roll (degrees, 4-byte signed int scaled by 1e6)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['gimbal_roll'] = scaled / 1e6
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 21")
+                    elif tag == 22:
+                        # Gimbal Pitch / Sensor Relative Pitch (degrees, 4-byte signed int scaled by 1e6)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['gimbal_pitch'] = scaled / 1e6
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 22")
+                    elif tag == 23:
+                        # Gimbal Yaw / Sensor Relative Yaw (degrees, 4-byte signed int scaled by 1e6)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['gimbal_yaw'] = scaled / 1e6
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 23")
+                    elif tag == 102:
+                        # Sensor Width (millimeters, 4-byte float)
+                        if item_length == 4:
+                            telemetry['sensor_width_mm'] = struct.unpack('>f', value_bytes)[0]
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 102")
+                    elif tag == 103:
+                        # Sensor Height (millimeters, 4-byte float)
+                        if item_length == 4:
+                            telemetry['sensor_height_mm'] = struct.unpack('>f', value_bytes)[0]
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 103")
+                    elif tag == 104:
+                        # Focal Length (millimeters, 4-byte float)
+                        if item_length == 4:
+                            telemetry['focal_length_mm'] = struct.unpack('>f', value_bytes)[0]
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 104")
                 except struct.error:
                     continue
 
@@ -501,6 +582,9 @@ class BasePipeline:
                             if klv_data:
                                 self.latest_klv = klv_data
                                 self.klv_pts = packet.pts
+                                # Log KLV data every 5 packets for debugging/monitoring
+                                if self.klv_count % 5 == 0:
+                                    logger.debug(f"KLV data (packet {self.klv_count}): {klv_data}")
                             continue
 
                         if packet.stream.type == 'video':
