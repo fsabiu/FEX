@@ -905,9 +905,9 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
         "class_id": -1,
         "class_name": "Parrot",
         "confidence": 1,
-        "latitude": klv_data['latitude'] if 'latitude' in klv_data else None,
-        "longitude": klv_data['longitude'] if 'longitude' in klv_data else None,
-        "altitude": klv_data['altitude'] if 'altitude' in klv_data else None
+        "latitude": klv_data['latitude'] if klv_data and 'latitude' in klv_data else None,
+        "longitude": klv_data['longitude'] if klv_data and 'longitude' in klv_data else None,
+        "altitude": klv_data['altitude'] if klv_data and 'altitude' in klv_data else None
         }
     )
 
@@ -1043,7 +1043,7 @@ def start_sse_server(port: int, broadcaster: SSEBroadcaster, stop_event: threadi
 class BasePipeline:
     def __init__(self, input_srt, output_rtsp, model_path, conf_threshold=0.25,
                  device='auto', classes=None, show_overlay=True,
-                 metadata_file=None, skip_frames=0, srt_latency=120,
+                 metadata_file=None, skip_frames=0, srt_latency=500,
                  metadata_host=None, metadata_port=5555,
                  sse_port=None, id3_interval=30,
                  detections_dir='detections', detection_log_interval=5.0, save_detection_images=True,
@@ -1752,7 +1752,7 @@ def main():
     parser.add_argument('--no-overlay', action='store_true', help='Disable overlay on video')
     parser.add_argument('--metadata-file', type=str, default=None, help='Save metadata to JSON file')
     parser.add_argument('--skip-frames', type=int, default=0, help='Skip N frames between detections (0 = all frames)')
-    parser.add_argument('--srt-latency', type=int, default=120, help='SRT latency in milliseconds')
+    parser.add_argument('--srt-latency', type=int, default=1500, help='SRT latency in milliseconds')
     parser.add_argument('--metadata-host', type=str, default=None, help='Host to send metadata via UDP')
     parser.add_argument('--metadata-port', type=int, default=5555, help='UDP port for metadata')
     parser.add_argument('--sse-port', type=int, default=None, help='Start SSE server on this port (path: /events)')
