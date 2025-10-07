@@ -306,6 +306,12 @@ class TAKCoTSender:
         self.stop_event = threading.Event()
         self.messages_sent = 0
         self.messages_dropped = 0
+        self.ready = False  # Flag to indicate TAK is connected and ready
+        
+        # Rate limiting: Track last send time per track_id
+        self.last_send_time = {}  # {track_id: timestamp}
+        self.update_interval = 2.0  # Send updates every 2 seconds per track
+        self.rate_limit_lock = threading.Lock()
         
         if self.enabled:
             self._setup_ssl_context()
@@ -374,6 +380,12 @@ class TAKCoTSender:
     
     def _sender_worker(self):
         """Background worker thread that processes the message queue."""
+        # Wait for initial connection before marking as ready
+        if not self.connect():
+            logger.error("❌ TAK initial connection failed, sender thread will retry")
+        else:
+            self.ready = True  # Mark as ready once connected
+        
         while not self.stop_event.is_set():
             try:
                 # Wait for message with timeout to allow checking stop_event
@@ -387,6 +399,8 @@ class TAKCoTSender:
                     if not self.connect():
                         self.messages_dropped += 1
                         continue
+                    else:
+                        self.ready = True  # Mark as ready after reconnection
                 
                 # Send message
                 try:
@@ -396,6 +410,7 @@ class TAKCoTSender:
                 except Exception as send_error:
                     logger.warning(f"⚠️ TAK send failed: {send_error}")
                     self.connected = False
+                    self.ready = False  # Mark as not ready when connection fails
                     self.messages_dropped += 1
                     
             except Exception as e:
@@ -524,7 +539,8 @@ class TAKCoTSender:
     
     def send_detection(self, detection, frame_num=0):
         """
-        Send a detection to TAK server (non-blocking via queue).
+        Send a detection to TAK server with rate limiting per track_id.
+        Only sends updates if enough time has passed since last update.
         
         Args:
             detection: Detection dictionary
@@ -536,6 +552,34 @@ class TAKCoTSender:
         if not self.enabled:
             return False
         
+        # Don't queue messages until TAK is connected and ready
+        if not self.ready:
+            return False
+        
+        # Rate limiting: Check if we should send this track_id
+        track_id = detection.get('track_id')
+        if track_id is not None:
+            current_time = time.time()
+            with self.rate_limit_lock:
+                last_time = self.last_send_time.get(track_id, 0)
+                time_since_last = current_time - last_time
+                
+                # Skip if we sent this track_id too recently
+                if time_since_last < self.update_interval:
+                    return False  # Rate limited, skip silently
+                
+                # Update last send time
+                self.last_send_time[track_id] = current_time
+                
+                # Clean up old track_ids (older than 60 seconds)
+                # This prevents memory leak from stale tracks
+                if len(self.last_send_time) > 1000:
+                    cutoff_time = current_time - 60.0
+                    self.last_send_time = {
+                        tid: t for tid, t in self.last_send_time.items() 
+                        if t > cutoff_time
+                    }
+        
         try:
             # Build CoT message
             cot_message = self.build_cot_message(detection, frame_num)
@@ -545,17 +589,17 @@ class TAKCoTSender:
             # Queue message for async sending (non-blocking)
             try:
                 self.message_queue.put_nowait(cot_message)
-                track_id = detection.get('track_id')
-                track_info = f" [ID:{track_id}]" if track_id else ""
-                logger.debug(f"📡 Queued for TAK: {detection.get('class_name')}{track_info} at frame {frame_num}")
+                # Temporary debug logging to verify sending
                 return True
             except queue.Full:
                 self.messages_dropped += 1
-                logger.warning(f"⚠️ TAK queue full, message dropped (queue size: {self.message_queue.qsize()})")
+                # Only log queue full occasionally to avoid log spam
+                if self.messages_dropped % 100 == 1:
+                    logger.warning(f"⚠️ TAK queue full, {self.messages_dropped} messages dropped so far")
                 return False
                     
-        except Exception as e:
-            logger.debug(f"Error queueing detection to TAK: {e}")
+        except Exception:
+            # Error building or queueing message, silently fail for performance
             return False
 
 
@@ -805,7 +849,7 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
         dict: Complete metadata packet
     """
     # Log telemetry data periodically for debugging
-    if frame_num % 100 == 0:
+    if frame_num % 1000 == 0:
         if klv_data:
             logger.info(f"KLV data at frame {frame_num}: {klv_data}")
             # Check for GPS data
@@ -833,7 +877,7 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
                     if geo_coords:
                         enriched_detection['geo_coordinates'] = geo_coords
                         coords_calculated += 1
-                        if frame_num % 100 == 0:
+                        if frame_num % 1000 == 0:
                             track_info = f" [ID:{detection['track_id']}]" if 'track_id' in detection else ""
                             logger.info(f"  ✓ Detection '{detection['class_name']}'{track_info} → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
                         
@@ -843,16 +887,17 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
                                 tak_sent += 1
                     else:
                         coords_failed += 1
-            except Exception as e:
-                logger.debug(f"Failed to calculate coordinates for detection: {e}")
+            except Exception:
+                # Coordinate calculation failed, count it but don't log for performance
                 coords_failed += 1
         
         enriched_detections.append(enriched_detection)
     
-    if frame_num % 100 == 0 and detections:
-        logger.info(f"Coordinates calculated: {coords_calculated}/{len(detections)} detections")
-        if tak_sender and tak_sender.enabled:
-            logger.info(f"📡 TAK messages sent: {tak_sent}/{coords_calculated} detections")
+    # if frame_num % 100 == 0 and detections:
+    #     logger.info(f"Coordinates calculated: {coords_calculated}/{len(detections)} detections")
+        #if tak_sender and tak_sender.enabled:
+            #logger.info(f"📡 TAK messages sent: {tak_sent}/{coords_calculated} detections")
+
    
     # Updating drone position
     enriched_detections.append(
@@ -1312,9 +1357,9 @@ class BasePipeline:
 
                             try:
                                 frames = packet.decode()
-                            except Exception as dec_err:
+                            except Exception:
                                 # Corrupt/truncated packet (common on live joins). Skip and continue
-                                logger.debug(f"Decode error skipped: {dec_err}")
+                                # Debug logging removed for performance
                                 continue
                             for frame in frames:
                                 self.frame_count += 1
@@ -1322,8 +1367,9 @@ class BasePipeline:
 
                                 try:
                                     img = frame.to_ndarray(format='bgr24')
-                                except Exception as conv_err:
-                                    logger.debug(f"Frame convert error skipped: {conv_err}")
+                                except Exception:
+                                    # Frame conversion error, skip frame
+                                    # Debug logging removed for performance
                                     continue
                                 should_detect = (self.skip_frames == 0) or (self.frame_count % (self.skip_frames + 1) == 1)
                                 if should_detect:
@@ -1411,7 +1457,7 @@ class BasePipeline:
                                 # Write frame
                                 self.write_frame(annotated_frame)
 
-                                if self.frame_count % 100 == 0:
+                                if self.frame_count % 3000 == 0:
                                     # Calculate performance metrics
                                     avg_yolo_time = sum(self.yolo_times) / len(self.yolo_times) if self.yolo_times else 0
                                     max_yolo_time = max(self.yolo_times) if self.yolo_times else 0
