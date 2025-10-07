@@ -1,0 +1,44 @@
+[Unit]
+Description=FEX YOLO Detection Pipeline Service with TAK Server Integration
+Documentation=file:///home/ubuntu/FEX/README_SRT_YOLO_HLS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/FEX
+
+# Environment setup
+Environment="PATH=/home/ubuntu/miniforge3/envs/kuna/bin:/home/ubuntu/miniforge3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="GST_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
+
+# Execute the wrapper script
+ExecStart=/bin/bash /home/ubuntu/FEX/fex-yolo-service.sh
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Resource limits (optional - adjust as needed)
+# LimitNOFILE=65536
+# MemoryLimit=4G
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fex-yolo
+
+# Security settings (optional - uncomment if needed)
+# NoNewPrivileges=true
+# PrivateTmp=true
+
+# Graceful shutdown timeout
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+

@@ -11,12 +11,26 @@ Metadata:
 - Embeds ID3v2 timed metadata when in id3 mode (via GStreamer id3v2mux).
 - Always exposes metadata via optional UDP and optional HTTP SSE for consumers.
 
-Example:
+TAK Server Integration:
+- Sends detected objects as Cursor on Target (CoT) messages to TAK Server
+- Uses SSL authentication with client certificates
+- Objects include geographic coordinates calculated via photogrammetry
+- Automatically reconnects on connection loss
+
+Example (basic):
   python3 srt_yolo_hls_unified.py \
     --input-srt 'srt://100.105.188.84:8890' \
     --output-rtsp 'rtsp://localhost:8554/detected_stream' \
     --model runs/detect/train10/weights/best.pt \
     --mode auto --sse-port 8081 --metadata-host 127.0.0.1 --metadata-port 5555
+
+Example (with TAK Server):
+  python3 srt_yolo_hls_unified.py \
+    --input-srt 'srt://100.105.188.84:8890' \
+    --output-rtsp 'rtsp://localhost:8554/detected_stream' \
+    --model runs/detect/train10/weights/best.pt \
+    --tak-enable --tak-host localhost --tak-port 8089 \
+    --tak-cert certs/user1.pem --tak-key certs/user1.key
 """
 
 import argparse
@@ -25,10 +39,12 @@ import struct
 import time
 import json
 import socket
+import ssl
 import threading
 import logging
+import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import deque
 
 import av
@@ -235,6 +251,247 @@ class KLVDecoder:
         except Exception as e:
             logger.debug(f"KLV decode error: {e}")
             return None
+
+
+class TAKCoTSender:
+    """
+    TAK Server Cursor on Target (CoT) message sender.
+    Handles SSL connection and sends detection events to TAK Server.
+    """
+    
+    def __init__(self, host='localhost', port=8089, cert_file='certs/user1.pem', 
+                 key_file='certs/user1.key', cert_password='atakatak', 
+                 enabled=False, stale_time_seconds=600):
+        """
+        Initialize TAK CoT sender.
+        
+        Args:
+            host: TAK server hostname/IP
+            port: TAK server SSL port (default 8089)
+            cert_file: Path to client certificate PEM file
+            key_file: Path to client key PEM file
+            cert_password: Certificate password (default: 'atakatak')
+            enabled: Enable/disable TAK sending
+            stale_time_seconds: How long objects persist on TAK (default: 600s = 10min)
+        """
+        self.host = host
+        self.port = port
+        self.cert_file = cert_file
+        self.key_file = key_file
+        self.cert_password = cert_password
+        self.enabled = enabled
+        self.stale_time_seconds = stale_time_seconds
+        self.ssl_context = None
+        self.connection = None
+        self.ssl_socket = None
+        self.connected = False
+        self.lock = threading.Lock()
+        
+        if self.enabled:
+            self._setup_ssl_context()
+    
+    def _setup_ssl_context(self):
+        """Setup SSL context with certificates."""
+        try:
+            self.ssl_context = ssl.create_default_context()
+            self.ssl_context.check_hostname = False
+            self.ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # Try to load certificates
+            try:
+                self.ssl_context.load_cert_chain(
+                    certfile=self.cert_file,
+                    keyfile=self.key_file,
+                    password=self.cert_password
+                )
+                logger.info(f"✅ TAK certificates loaded: {self.cert_file}")
+            except Exception as cert_error:
+                logger.warning(f"⚠️ TAK certificate loading failed: {cert_error}")
+                try:
+                    # Try without password
+                    self.ssl_context.load_cert_chain(
+                        certfile=self.cert_file,
+                        keyfile=self.key_file
+                    )
+                    logger.info(f"✅ TAK certificates loaded (no password): {self.cert_file}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load TAK certificates: {e}")
+                    self.enabled = False
+        except Exception as e:
+            logger.error(f"❌ Failed to setup SSL context: {e}")
+            self.enabled = False
+    
+    def connect(self):
+        """Establish connection to TAK server."""
+        if not self.enabled:
+            return False
+        
+        with self.lock:
+            try:
+                if self.connected:
+                    return True
+                
+                logger.info(f"🔌 Connecting to TAK server: {self.host}:{self.port}")
+                self.connection = socket.create_connection((self.host, self.port), timeout=15)
+                self.ssl_socket = self.ssl_context.wrap_socket(
+                    self.connection, 
+                    server_hostname=self.host
+                )
+                self.connected = True
+                logger.info(f"✅ TAK server connected: {self.host}:{self.port}")
+                return True
+            except Exception as e:
+                logger.error(f"❌ TAK connection failed: {e}")
+                self.connected = False
+                return False
+    
+    def disconnect(self):
+        """Close connection to TAK server."""
+        with self.lock:
+            try:
+                if self.ssl_socket:
+                    self.ssl_socket.close()
+                if self.connection:
+                    self.connection.close()
+                self.connected = False
+                logger.info("🔌 TAK server disconnected")
+            except Exception as e:
+                logger.debug(f"Error disconnecting from TAK: {e}")
+    
+    def build_cot_message(self, detection, frame_num=0):
+        """
+        Build CoT XML message from detection data.
+        
+        Args:
+            detection: Detection dictionary with class_name and geo_coordinates
+            frame_num: Frame number for unique UID generation
+            
+        Returns:
+            CoT XML message string, or None if invalid data
+        """
+        try:
+            # Extract required data
+            class_name = detection.get('class_name', 'Unknown')
+            geo_coords = detection.get('geo_coordinates')
+            
+            if not geo_coords:
+                return None
+            
+            latitude = geo_coords.get('latitude')
+            longitude = geo_coords.get('longitude')
+            
+            if latitude is None or longitude is None:
+                return None
+            
+            # Generate unique UID for this detection
+            # Use class_name + frame + short uuid for uniqueness
+            uid = f"{class_name}-{frame_num}-{str(uuid.uuid4())[:8]}"
+            
+            # Build callsign
+            confidence = detection.get('confidence', 0.0)
+            callsign = f"{class_name}_{confidence:.0%}"
+            
+            # Time information
+            now = datetime.now(timezone.utc)
+            time_str = now.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            stale_time = datetime.fromtimestamp(
+                now.timestamp() + self.stale_time_seconds, 
+                timezone.utc
+            ).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            
+            # Altitude (default to ground level if not available)
+            altitude = geo_coords.get('altitude', 0.0)
+            
+            # Distance and camera info for remarks
+            distance = geo_coords.get('estimated_ground_distance_m', 0)
+            camera_az = geo_coords.get('camera_azimuth_deg', 0)
+            camera_el = geo_coords.get('camera_elevation_deg', 0)
+            
+            # CoT type: a-f-G = friendly ground (can customize based on class_name)
+            cot_type = self._get_cot_type(class_name)
+            
+            # Build CoT XML
+            cot_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<event version="2.0" uid="{uid}" type="{cot_type}" time="{time_str}" start="{time_str}" stale="{stale_time}" how="m-g">
+<point lat="{latitude:.6f}" lon="{longitude:.6f}" hae="{altitude:.1f}" ce="10.0" le="10.0"/>
+<detail>
+<contact callsign="{callsign}" endpoint="*:-1:stcp"/>
+<uid Droid="{callsign}"/>
+<__group name="Yellow" role="Team Member"/>
+<status battery="100"/>
+<takv device="YOLO Detection" platform="Python Pipeline" os="Linux" version="1.0"/>
+<track speed="0.0" course="{camera_az:.1f}"/>
+<remarks>Detected: {class_name} | Distance: {distance:.0f}m | Camera: Az={camera_az:.1f}° El={camera_el:.1f}° | Conf={confidence:.1%}</remarks>
+<precisionlocation altsrc="DTED0" geopointsrc="Photogrammetry"/>
+</detail>
+</event>
+'''
+            return cot_xml
+            
+        except Exception as e:
+            logger.debug(f"Error building CoT message: {e}")
+            return None
+    
+    def _get_cot_type(self, class_name):
+        """
+        Map detection class to CoT type.
+        
+        Reference:
+        - a-f-G = friendly ground
+        - a-h-G = hostile ground  
+        - a-n-G = neutral ground
+        - a-u-G = unknown ground
+        """
+        # Customize based on your detection classes
+        hostile_classes = ['weapon', 'gun', 'threat']
+        
+        class_lower = class_name.lower()
+        
+        if any(h in class_lower for h in hostile_classes):
+            return "a-h-G-U-C"  # hostile
+        else:
+            return "a-n-G-U-C"  # neutral (default for detections)
+    
+    def send_detection(self, detection, frame_num=0):
+        """
+        Send a detection to TAK server.
+        
+        Args:
+            detection: Detection dictionary
+            frame_num: Frame number
+            
+        Returns:
+            bool: True if sent successfully, False otherwise
+        """
+        if not self.enabled:
+            return False
+        
+        try:
+            # Build CoT message
+            cot_message = self.build_cot_message(detection, frame_num)
+            if not cot_message:
+                return False
+            
+            # Ensure connected
+            if not self.connected:
+                if not self.connect():
+                    return False
+            
+            # Send message
+            with self.lock:
+                try:
+                    self.ssl_socket.send(cot_message.encode('utf-8'))
+                    logger.debug(f"📡 Sent to TAK: {detection.get('class_name')} at frame {frame_num}")
+                    return True
+                except Exception as send_error:
+                    logger.warning(f"⚠️ TAK send failed: {send_error}")
+                    self.connected = False
+                    # Try to reconnect on next send
+                    return False
+                    
+        except Exception as e:
+            logger.debug(f"Error sending detection to TAK: {e}")
+            return False
 
 
 def resolve_device(device_value: str) -> str:
@@ -451,7 +708,7 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
         return None
 
 
-def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_width=None, frame_height=None):
+def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_width=None, frame_height=None, tak_sender=None):
     """
     Create metadata packet with detections and geographic coordinates.
     
@@ -481,6 +738,7 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
     enriched_detections = []
     coords_calculated = 0
     coords_failed = 0
+    tak_sent = 0
     
     for detection in detections:
         enriched_detection = detection.copy()
@@ -496,6 +754,11 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
                         coords_calculated += 1
                         if frame_num % 100 == 0:
                             logger.info(f"  ✓ Detection '{detection['class_name']}' → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
+                        
+                        # Send to TAK server if enabled
+                        if tak_sender and tak_sender.enabled:
+                            if tak_sender.send_detection(enriched_detection, frame_num):
+                                tak_sent += 1
                     else:
                         coords_failed += 1
             except Exception as e:
@@ -506,6 +769,8 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
     
     if frame_num % 100 == 0 and detections:
         logger.info(f"Coordinates calculated: {coords_calculated}/{len(detections)} detections")
+        if tak_sender and tak_sender.enabled:
+            logger.info(f"📡 TAK messages sent: {tak_sent}/{coords_calculated} detections")
    
     # Updating drone position
     enriched_detections.append(
@@ -654,7 +919,8 @@ class BasePipeline:
                  metadata_file=None, skip_frames=0, srt_latency=120,
                  metadata_host=None, metadata_port=5555,
                  sse_port=None, id3_interval=30,
-                 detections_dir='detections', detection_log_interval=5.0, save_detection_images=True):
+                 detections_dir='detections', detection_log_interval=5.0, save_detection_images=True,
+                 tak_sender=None):
         self.input_srt = input_srt
         self.output_rtsp = output_rtsp
         self.model_path = model_path
@@ -676,6 +942,7 @@ class BasePipeline:
         self.model = None
         self.container = None
         self.klv_decoder = KLVDecoder()
+        self.tak_sender = tak_sender
 
         self.frame_count = 0
         self.processed_frame_count = 0
@@ -849,6 +1116,11 @@ class BasePipeline:
                 logger.info("Metadata UDP socket closed")
             except Exception as e:
                 logger.error(f"Error closing UDP socket: {e}")
+        if self.tak_sender:
+            try:
+                self.tak_sender.disconnect()
+            except Exception as e:
+                logger.error(f"Error disconnecting TAK sender: {e}")
         if self.metadata_file and self.metadata_buffer:
             try:
                 with open(self.metadata_file, 'w') as f:
@@ -1001,7 +1273,8 @@ class BasePipeline:
                                     self.frame_count, 
                                     datetime.now().isoformat(),
                                     frame_width=self.frame_width,
-                                    frame_height=self.frame_height
+                                    frame_height=self.frame_height,
+                                    tak_sender=self.tak_sender
                                 )
                                 self.metadata_buffer.append(metadata)
 
@@ -1332,6 +1605,15 @@ def main():
     parser.add_argument('--detections-dir', type=str, default=None, help='Directory to save detection logs (JSON and optional images)')
     parser.add_argument('--detection-log-interval', type=float, default=5.0, help='Interval in seconds to save detection logs')
     parser.add_argument('--save-detection-images', action='store_true', help='Save cropped images of detected objects')
+    
+    # TAK Server arguments
+    parser.add_argument('--tak-enable', action='store_true', help='Enable TAK Server CoT message sending')
+    parser.add_argument('--tak-host', type=str, default='localhost', help='TAK Server hostname/IP')
+    parser.add_argument('--tak-port', type=int, default=8089, help='TAK Server SSL port')
+    parser.add_argument('--tak-cert', type=str, default='certs/user1.pem', help='TAK client certificate file')
+    parser.add_argument('--tak-key', type=str, default='certs/user1.key', help='TAK client key file')
+    parser.add_argument('--tak-password', type=str, default='atakatak', help='TAK certificate password')
+    parser.add_argument('--tak-stale', type=int, default=600, help='TAK object stale time in seconds')
 
     args = parser.parse_args()
     logging.getLogger().setLevel(getattr(logging, args.log_level))
@@ -1340,6 +1622,23 @@ def main():
     if not model_path.exists():
         logger.error(f"Model file not found: {model_path}")
         sys.exit(1)
+
+    # Initialize TAK CoT sender if enabled
+    tak_sender = None
+    if args.tak_enable:
+        tak_sender = TAKCoTSender(
+            host=args.tak_host,
+            port=args.tak_port,
+            cert_file=args.tak_cert,
+            key_file=args.tak_key,
+            cert_password=args.tak_password,
+            enabled=True,
+            stale_time_seconds=args.tak_stale
+        )
+        if tak_sender.enabled:
+            logger.info(f"🎯 TAK Server integration enabled: {args.tak_host}:{args.tak_port}")
+        else:
+            logger.warning("⚠️ TAK Server integration failed to initialize")
 
     try:
         pipeline = build_pipeline(
@@ -1361,6 +1660,7 @@ def main():
             detections_dir=None,
             detection_log_interval=5.0,
             save_detection_images=False,
+            tak_sender=tak_sender,
         )
         pipeline.run()
     except Exception as e:
