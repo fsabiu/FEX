@@ -16,6 +16,8 @@ TAK Server Integration:
 - Uses SSL authentication with client certificates
 - Objects include geographic coordinates calculated via photogrammetry
 - Automatically reconnects on connection loss
+- Uses YOLO tracking mode with persistent IDs (same object = same TAK icon)
+- Track IDs prevent duplicate objects on TAK map
 
 Example (basic):
   python3 srt_yolo_hls_unified.py \
@@ -363,8 +365,8 @@ class TAKCoTSender:
         Build CoT XML message from detection data.
         
         Args:
-            detection: Detection dictionary with class_name and geo_coordinates
-            frame_num: Frame number for unique UID generation
+            detection: Detection dictionary with class_name, geo_coordinates, and optional track_id
+            frame_num: Frame number (fallback if no track_id)
             
         Returns:
             CoT XML message string, or None if invalid data
@@ -373,6 +375,7 @@ class TAKCoTSender:
             # Extract required data
             class_name = detection.get('class_name', 'Unknown')
             geo_coords = detection.get('geo_coordinates')
+            track_id = detection.get('track_id')
             
             if not geo_coords:
                 return None
@@ -383,13 +386,21 @@ class TAKCoTSender:
             if latitude is None or longitude is None:
                 return None
             
-            # Generate unique UID for this detection
-            # Use class_name + frame + short uuid for uniqueness
-            uid = f"{class_name}-{frame_num}-{str(uuid.uuid4())[:8]}"
+            # Generate UID for this detection
+            # Use track_id if available (persistent across frames), otherwise use frame number
+            if track_id is not None:
+                # Persistent UID - same object will update on TAK map
+                uid = f"YOLO-{class_name}-{track_id}"
+            else:
+                # Fallback: new UID every frame (creates new objects)
+                uid = f"YOLO-{class_name}-{frame_num}-{str(uuid.uuid4())[:8]}"
             
             # Build callsign
             confidence = detection.get('confidence', 0.0)
-            callsign = f"{class_name}_{confidence:.0%}"
+            if track_id is not None:
+                callsign = f"{class_name}_ID{track_id}_{confidence:.0%}"
+            else:
+                callsign = f"{class_name}_{confidence:.0%}"
             
             # Time information
             now = datetime.now(timezone.utc)
@@ -421,7 +432,7 @@ class TAKCoTSender:
 <status battery="100"/>
 <takv device="YOLO Detection" platform="Python Pipeline" os="Linux" version="1.0"/>
 <track speed="0.0" course="{camera_az:.1f}"/>
-<remarks>Detected: {class_name} | Distance: {distance:.0f}m | Camera: Az={camera_az:.1f}° El={camera_el:.1f}° | Conf={confidence:.1%}</remarks>
+<remarks>{"Tracked" if track_id else "Detected"}: {class_name}{f" (ID:{track_id})" if track_id else ""} | Distance: {distance:.0f}m | Camera: Az={camera_az:.1f}° El={camera_el:.1f}° | Conf={confidence:.1%}</remarks>
 <precisionlocation altsrc="DTED0" geopointsrc="Photogrammetry"/>
 </detail>
 </event>
@@ -481,7 +492,9 @@ class TAKCoTSender:
             with self.lock:
                 try:
                     self.ssl_socket.send(cot_message.encode('utf-8'))
-                    logger.debug(f"📡 Sent to TAK: {detection.get('class_name')} at frame {frame_num}")
+                    track_id = detection.get('track_id')
+                    track_info = f" [ID:{track_id}]" if track_id else ""
+                    logger.debug(f"📡 Sent to TAK: {detection.get('class_name')}{track_info} at frame {frame_num}")
                     return True
                 except Exception as send_error:
                     logger.warning(f"⚠️ TAK send failed: {send_error}")
@@ -507,6 +520,15 @@ def resolve_device(device_value: str) -> str:
 
 
 def extract_detections(results):
+    """
+    Extract detections from YOLO results, including track IDs if available.
+    
+    Args:
+        results: YOLO results object (from model() or model.track())
+        
+    Returns:
+        List of detection dictionaries with bbox, class info, and optional track_id
+    """
     detections = []
     if len(results.boxes) > 0:
         for box in results.boxes:
@@ -514,12 +536,19 @@ def extract_detections(results):
             confidence = float(box.conf[0].item())
             class_name = results.names.get(class_id, f"class_{class_id}")
             x1, y1, x2, y2 = box.xyxy[0].tolist()
-            detections.append({
+            
+            detection = {
                 'class_id': class_id,
                 'class_name': class_name,
                 'confidence': confidence,
                 'bbox': [x1, y1, x2, y2]
-            })
+            }
+            
+            # Add track ID if available (when using model.track())
+            if hasattr(box, 'id') and box.id is not None:
+                detection['track_id'] = int(box.id.item())
+            
+            detections.append(detection)
     return detections
 
 
@@ -753,7 +782,8 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
                         enriched_detection['geo_coordinates'] = geo_coords
                         coords_calculated += 1
                         if frame_num % 100 == 0:
-                            logger.info(f"  ✓ Detection '{detection['class_name']}' → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
+                            track_info = f" [ID:{detection['track_id']}]" if 'track_id' in detection else ""
+                            logger.info(f"  ✓ Detection '{detection['class_name']}'{track_info} → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
                         
                         # Send to TAK server if enabled
                         if tak_sender and tak_sender.enabled:
@@ -1242,7 +1272,10 @@ class BasePipeline:
                                 should_detect = (self.skip_frames == 0) or (self.frame_count % (self.skip_frames + 1) == 1)
                                 if should_detect:
                                     self.processed_frame_count += 1
-                                    results = self.model(img, conf=self.conf_threshold, verbose=False, device=self.device, classes=self.classes)
+                                    # Use tracking mode to get persistent IDs across frames
+                                    results = self.model.track(img, conf=self.conf_threshold, verbose=False, 
+                                                              device=self.device, classes=self.classes, 
+                                                              persist=True, tracker="bytetrack.yaml")
                                     detections = extract_detections(results[0])
                                     if detections:
                                         self.detection_count += len(detections)
@@ -1657,7 +1690,7 @@ def main():
             metadata_port=args.metadata_port,
             sse_port=args.sse_port,
             id3_interval=args.id3_interval,
-            detections_dir=None,
+            detections_dir="detections",
             detection_log_interval=5.0,
             save_detection_images=False,
             tak_sender=tak_sender,

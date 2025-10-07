@@ -45,7 +45,7 @@ cd "$WORK_DIR"
 
 # Initialize conda for bash
 source "$CONDA_BASE/etc/profile.d/conda.sh"
-source "$CONDA_BASE/etc/profile.d/mamba.sh"
+#source "$CONDA_BASE/etc/profile.d/mamba.sh"
 
 # Activate conda environment
 echo "Activating conda environment: $CONDA_ENV"
