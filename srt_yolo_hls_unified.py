@@ -45,6 +45,7 @@ import ssl
 import threading
 import logging
 import uuid
+import queue
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import deque
@@ -58,6 +59,16 @@ from ultralytics import YOLO
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("SRTYOLOUnified")
+
+# Suppress noisy FFmpeg/libav video decoding error messages
+# These errors occur when SRT drops packets and video frames are corrupted
+# The pipeline handles them gracefully, so we suppress the spam
+logging.getLogger('libav').setLevel(logging.CRITICAL)
+logging.getLogger('libav.h264').setLevel(logging.CRITICAL)
+
+# Set av (PyAV) logging to only show critical errors
+# This suppresses "decode_slice_header error", "field mode" errors, etc.
+av.logging.set_level(av.logging.ERROR)
 
 
 def _try_import_gi():
@@ -257,15 +268,15 @@ class KLVDecoder:
 
 class TAKCoTSender:
     """
-    TAK Server Cursor on Target (CoT) message sender.
-    Handles SSL connection and sends detection events to TAK Server.
+    TAK Server Cursor on Target (CoT) message sender with async queue.
+    Uses background thread to send messages without blocking main pipeline.
     """
     
     def __init__(self, host='localhost', port=8089, cert_file='certs/user1.pem', 
                  key_file='certs/user1.key', cert_password='atakatak', 
                  enabled=False, stale_time_seconds=600):
         """
-        Initialize TAK CoT sender.
+        Initialize TAK CoT sender with async queue.
         
         Args:
             host: TAK server hostname/IP
@@ -289,8 +300,16 @@ class TAKCoTSender:
         self.connected = False
         self.lock = threading.Lock()
         
+        # Async queue for non-blocking sends
+        self.message_queue = queue.Queue(maxsize=1000)
+        self.sender_thread = None
+        self.stop_event = threading.Event()
+        self.messages_sent = 0
+        self.messages_dropped = 0
+        
         if self.enabled:
             self._setup_ssl_context()
+            self._start_sender_thread()
     
     def _setup_ssl_context(self):
         """Setup SSL context with certificates."""
@@ -347,8 +366,48 @@ class TAKCoTSender:
                 self.connected = False
                 return False
     
+    def _start_sender_thread(self):
+        """Start background thread for sending TAK messages."""
+        self.sender_thread = threading.Thread(target=self._sender_worker, daemon=True)
+        self.sender_thread.start()
+        logger.info("✅ TAK sender thread started")
+    
+    def _sender_worker(self):
+        """Background worker thread that processes the message queue."""
+        while not self.stop_event.is_set():
+            try:
+                # Wait for message with timeout to allow checking stop_event
+                try:
+                    message = self.message_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                
+                # Ensure connected
+                if not self.connected:
+                    if not self.connect():
+                        self.messages_dropped += 1
+                        continue
+                
+                # Send message
+                try:
+                    with self.lock:
+                        self.ssl_socket.send(message.encode('utf-8'))
+                        self.messages_sent += 1
+                except Exception as send_error:
+                    logger.warning(f"⚠️ TAK send failed: {send_error}")
+                    self.connected = False
+                    self.messages_dropped += 1
+                    
+            except Exception as e:
+                logger.error(f"Error in TAK sender thread: {e}")
+                time.sleep(1)  # Avoid tight loop on errors
+    
     def disconnect(self):
-        """Close connection to TAK server."""
+        """Close connection to TAK server and stop sender thread."""
+        self.stop_event.set()
+        if self.sender_thread and self.sender_thread.is_alive():
+            self.sender_thread.join(timeout=2.0)
+        
         with self.lock:
             try:
                 if self.ssl_socket:
@@ -356,7 +415,7 @@ class TAKCoTSender:
                 if self.connection:
                     self.connection.close()
                 self.connected = False
-                logger.info("🔌 TAK server disconnected")
+                logger.info(f"🔌 TAK server disconnected (sent: {self.messages_sent}, dropped: {self.messages_dropped})")
             except Exception as e:
                 logger.debug(f"Error disconnecting from TAK: {e}")
     
@@ -465,14 +524,14 @@ class TAKCoTSender:
     
     def send_detection(self, detection, frame_num=0):
         """
-        Send a detection to TAK server.
+        Send a detection to TAK server (non-blocking via queue).
         
         Args:
             detection: Detection dictionary
             frame_num: Frame number
             
         Returns:
-            bool: True if sent successfully, False otherwise
+            bool: True if queued successfully, False otherwise
         """
         if not self.enabled:
             return False
@@ -483,27 +542,20 @@ class TAKCoTSender:
             if not cot_message:
                 return False
             
-            # Ensure connected
-            if not self.connected:
-                if not self.connect():
-                    return False
-            
-            # Send message
-            with self.lock:
-                try:
-                    self.ssl_socket.send(cot_message.encode('utf-8'))
-                    track_id = detection.get('track_id')
-                    track_info = f" [ID:{track_id}]" if track_id else ""
-                    logger.debug(f"📡 Sent to TAK: {detection.get('class_name')}{track_info} at frame {frame_num}")
-                    return True
-                except Exception as send_error:
-                    logger.warning(f"⚠️ TAK send failed: {send_error}")
-                    self.connected = False
-                    # Try to reconnect on next send
-                    return False
+            # Queue message for async sending (non-blocking)
+            try:
+                self.message_queue.put_nowait(cot_message)
+                track_id = detection.get('track_id')
+                track_info = f" [ID:{track_id}]" if track_id else ""
+                logger.debug(f"📡 Queued for TAK: {detection.get('class_name')}{track_info} at frame {frame_num}")
+                return True
+            except queue.Full:
+                self.messages_dropped += 1
+                logger.warning(f"⚠️ TAK queue full, message dropped (queue size: {self.message_queue.qsize()})")
+                return False
                     
         except Exception as e:
-            logger.debug(f"Error sending detection to TAK: {e}")
+            logger.debug(f"Error queueing detection to TAK: {e}")
             return False
 
 
@@ -985,6 +1037,10 @@ class BasePipeline:
         self.metadata_buffer = deque(maxlen=1000)
         self.last_detection_log_time = None
         
+        # Performance monitoring
+        self.yolo_times = deque(maxlen=100)  # Store last 100 inference times
+        self.total_processing_times = deque(maxlen=100)  # Store last 100 total processing times
+        
         # Initialize detections directory
         if self.detections_dir:
             import os
@@ -1271,16 +1327,31 @@ class BasePipeline:
                                     continue
                                 should_detect = (self.skip_frames == 0) or (self.frame_count % (self.skip_frames + 1) == 1)
                                 if should_detect:
+                                    processing_start = time.time()
                                     self.processed_frame_count += 1
-                                    # Use tracking mode to get persistent IDs across frames
-                                    results = self.model.track(img, conf=self.conf_threshold, verbose=False, 
-                                                              device=self.device, classes=self.classes, 
-                                                              persist=True, tracker="bytetrack.yaml")
-                                    detections = extract_detections(results[0])
+                                    
+                                    # Measure YOLO tracking time
+                                    yolo_start = time.time()
+                                    # Use tracking mode with streaming for efficiency
+                                    # stream=True returns generator, processes frames immediately without batching
+                                    results_gen = self.model.track(img, conf=self.conf_threshold, verbose=False, 
+                                                                   device=self.device, classes=self.classes, 
+                                                                   persist=True, tracker="bytetrack.yaml",
+                                                                   stream=True)
+                                    # Get first (and only) result from generator
+                                    results = next(results_gen)
+                                    yolo_time = time.time() - yolo_start
+                                    self.yolo_times.append(yolo_time)
+                                    
+                                    detections = extract_detections(results)
                                     if detections:
                                         self.detection_count += len(detections)
                                     self.latest_detections = detections
-                                    annotated_frame = results[0].plot()
+                                    annotated_frame = results.plot()
+                                    
+                                    # Measure total processing time (including metadata, coordinates, TAK)
+                                    total_processing_time = time.time() - processing_start
+                                    self.total_processing_times.append(total_processing_time)
                                 else:
                                     detections = self.latest_detections
                                     annotated_frame = img.copy()
@@ -1341,7 +1412,14 @@ class BasePipeline:
                                 self.write_frame(annotated_frame)
 
                                 if self.frame_count % 100 == 0:
+                                    # Calculate performance metrics
+                                    avg_yolo_time = sum(self.yolo_times) / len(self.yolo_times) if self.yolo_times else 0
+                                    max_yolo_time = max(self.yolo_times) if self.yolo_times else 0
+                                    avg_total_time = sum(self.total_processing_times) / len(self.total_processing_times) if self.total_processing_times else 0
+                                    max_total_time = max(self.total_processing_times) if self.total_processing_times else 0
+                                    
                                     logger.info(f"Frames: {self.frame_count} (processed: {self.processed_frame_count}) | KLV: {self.klv_count} | Detections: {self.detection_count} | FPS: {current_fps:.1f}")
+                                    logger.info(f"⏱️  YOLO: {avg_yolo_time*1000:.1f}ms avg ({max_yolo_time*1000:.1f}ms max) | Total: {avg_total_time*1000:.1f}ms avg ({max_total_time*1000:.1f}ms max) | Processing rate: {1/avg_total_time if avg_total_time > 0 else 0:.1f} fps")
                     
                     # If we exit the demux loop normally, break the outer loop
                     break
@@ -1690,7 +1768,7 @@ def main():
             metadata_port=args.metadata_port,
             sse_port=args.sse_port,
             id3_interval=args.id3_interval,
-            detections_dir="detections",
+            detections_dir=None,
             detection_log_interval=5.0,
             save_detection_images=False,
             tak_sender=tak_sender,
