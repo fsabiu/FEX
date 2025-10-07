@@ -169,24 +169,24 @@ class KLVDecoder:
                         else:
                             logger.debug(f"Unexpected length {item_length} for tag 19")
                     elif tag == 21:
-                        # Gimbal Roll / Sensor Relative Roll (degrees, 4-byte signed int scaled by 1e6)
+                        # Sensor Relative Roll / Gimbal Roll Relative (degrees, 4-byte signed int scaled by 1e6)
                         if item_length == 4:
                             scaled = struct.unpack('>i', value_bytes)[0]
-                            telemetry['gimbal_roll'] = scaled / 1e6
+                            telemetry['gimbal_roll_rel'] = scaled / 1e6
                         else:
                             logger.debug(f"Unexpected length {item_length} for tag 21")
                     elif tag == 22:
-                        # Gimbal Pitch / Sensor Relative Pitch (degrees, 4-byte signed int scaled by 1e6)
+                        # Sensor Relative Pitch / Gimbal Pitch Relative (degrees, 4-byte signed int scaled by 1e6)
                         if item_length == 4:
                             scaled = struct.unpack('>i', value_bytes)[0]
-                            telemetry['gimbal_pitch'] = scaled / 1e6
+                            telemetry['gimbal_pitch_rel'] = scaled / 1e6
                         else:
                             logger.debug(f"Unexpected length {item_length} for tag 22")
                     elif tag == 23:
-                        # Gimbal Yaw / Sensor Relative Yaw (degrees, 4-byte signed int scaled by 1e6)
+                        # Sensor Relative Yaw / Gimbal Yaw Relative (degrees, 4-byte signed int scaled by 1e6)
                         if item_length == 4:
                             scaled = struct.unpack('>i', value_bytes)[0]
-                            telemetry['gimbal_yaw'] = scaled / 1e6
+                            telemetry['gimbal_yaw_rel'] = scaled / 1e6
                         else:
                             logger.debug(f"Unexpected length {item_length} for tag 23")
                     elif tag == 102:
@@ -207,6 +207,27 @@ class KLVDecoder:
                             telemetry['focal_length_mm'] = struct.unpack('>f', value_bytes)[0]
                         else:
                             logger.debug(f"Unexpected length {item_length} for tag 104")
+                    elif tag == 105:
+                        # Gimbal Absolute Yaw (degrees, 4-byte signed int scaled by 1e6)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['gimbal_yaw_abs'] = scaled / 1e6
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 105")
+                    elif tag == 106:
+                        # Gimbal Absolute Pitch (degrees, 4-byte signed int scaled by 1e6)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['gimbal_pitch_abs'] = scaled / 1e6
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 106")
+                    elif tag == 107:
+                        # Gimbal Absolute Roll (degrees, 4-byte signed int scaled by 1e6)
+                        if item_length == 4:
+                            scaled = struct.unpack('>i', value_bytes)[0]
+                            telemetry['gimbal_roll_abs'] = scaled / 1e6
+                        else:
+                            logger.debug(f"Unexpected length {item_length} for tag 107")
                 except struct.error:
                     continue
 
@@ -245,13 +266,265 @@ def extract_detections(results):
     return detections
 
 
-def create_metadata_packet(klv_data, detections, frame_num, timestamp):
+def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
+    """
+    Calculate geographic coordinates (lat/lon) for a detected object using photogrammetry.
+    
+    Args:
+        bbox: Bounding box [x1, y1, x2, y2] in pixels
+        klv_data: Telemetry data containing platform and camera information
+        frame_width: Video frame width in pixels
+        frame_height: Video frame height in pixels
+    
+    Returns:
+        dict: Geographic coordinates and metadata, or None if calculation fails
+    """
+    import math
+    
+    try:
+        # Extract required fields from KLV data
+        required_fields = ['latitude', 'longitude', 'altitude']
+        missing_fields = [f for f in required_fields if f not in klv_data or klv_data[f] is None]
+        
+        if missing_fields:
+            logger.debug(f"Missing required fields for coordinate calculation: {missing_fields}")
+            return None
+        
+        # Platform position
+        platform_lat = klv_data['latitude']  # degrees
+        platform_lon = klv_data['longitude']  # degrees
+        platform_alt = klv_data['altitude']  # meters
+        
+        # Platform orientation (default to 0 if missing)
+        platform_roll = klv_data.get('roll', 0.0)  # degrees
+        platform_pitch = klv_data.get('pitch', 0.0)  # degrees
+        platform_heading = klv_data.get('heading', 0.0)  # degrees (0=North, 90=East)
+        
+        # Gimbal orientation - prefer absolute (world frame) over relative (platform frame)
+        # Absolute angles are in world frame, much simpler to work with
+        has_absolute = 'gimbal_yaw_abs' in klv_data or 'gimbal_pitch_abs' in klv_data
+        has_relative = 'gimbal_yaw_rel' in klv_data or 'gimbal_pitch_rel' in klv_data
+        
+        if has_absolute:
+            # Use absolute gimbal angles (already in world frame)
+            gimbal_yaw_world = klv_data.get('gimbal_yaw_abs', 0.0)  # degrees (0=North, 90=East)
+            gimbal_pitch_world = klv_data.get('gimbal_pitch_abs', -90.0)  # degrees (negative = down from horizon)
+            gimbal_roll_world = klv_data.get('gimbal_roll_abs', 0.0)  # degrees
+            logger.debug("Using gimbal ABSOLUTE angles (world frame)")
+        elif has_relative:
+            # Use relative gimbal angles (relative to platform) - need to transform to world frame
+            gimbal_roll_rel = klv_data.get('gimbal_roll_rel', 0.0)  # degrees
+            gimbal_pitch_rel = klv_data.get('gimbal_pitch_rel', -90.0)  # degrees
+            gimbal_yaw_rel = klv_data.get('gimbal_yaw_rel', 0.0)  # degrees
+            
+            # SIMPLIFIED transformation (assumes small platform roll/pitch, otherwise need full 3D rotation matrices)
+            # This is approximate but works for typical drone operations (roll/pitch < 30°)
+            gimbal_yaw_world = platform_heading + gimbal_yaw_rel
+            gimbal_pitch_world = gimbal_pitch_rel + platform_pitch  # Approximate
+            gimbal_roll_world = gimbal_roll_rel + platform_roll  # Approximate
+            
+            logger.debug(f"Using gimbal RELATIVE angles: converted to world frame (APPROXIMATE)")
+            logger.debug(f"  Platform: heading={platform_heading:.1f}°, pitch={platform_pitch:.1f}°, roll={platform_roll:.1f}°")
+            logger.debug(f"  Gimbal rel: yaw={gimbal_yaw_rel:.1f}°, pitch={gimbal_pitch_rel:.1f}°, roll={gimbal_roll_rel:.1f}°")
+        else:
+            # Fallback: assume nadir (straight down)
+            gimbal_yaw_world = platform_heading
+            gimbal_pitch_world = -90.0  # straight down
+            gimbal_roll_world = 0.0
+            logger.debug("No gimbal data, assuming nadir (straight down)")
+        
+        # Camera specifications
+        sensor_width_mm = klv_data.get('sensor_width_mm')
+        sensor_height_mm = klv_data.get('sensor_height_mm')
+        focal_length_mm = klv_data.get('focal_length_mm')
+        
+        # Calculate center of bounding box
+        x1, y1, x2, y2 = bbox
+        bbox_center_x = (x1 + x2) / 2.0
+        bbox_center_y = (y1 + y2) / 2.0
+        
+        # Calculate pixel offset from image center (normalized)
+        pixel_offset_x = (bbox_center_x - frame_width / 2.0)
+        pixel_offset_y = (bbox_center_y - frame_height / 2.0)
+        
+        # Calculate angular offset from camera center
+        if sensor_width_mm and sensor_height_mm and focal_length_mm:
+            # Use camera model with focal length
+            angle_per_pixel_x = math.atan(sensor_width_mm / (2.0 * focal_length_mm)) * 2.0 / frame_width
+            angle_per_pixel_y = math.atan(sensor_height_mm / (2.0 * focal_length_mm)) * 2.0 / frame_height
+            
+            # Angular offset in radians
+            alpha_x = pixel_offset_x * angle_per_pixel_x  # horizontal angle
+            alpha_y = pixel_offset_y * angle_per_pixel_y  # vertical angle
+            
+            logger.debug(f"Camera model: focal={focal_length_mm}mm, sensor={sensor_width_mm}x{sensor_height_mm}mm")
+            logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
+        elif 'sensor_h_fov' in klv_data and 'sensor_v_fov' in klv_data:
+            # Use field of view
+            h_fov_rad = math.radians(klv_data['sensor_h_fov'])
+            v_fov_rad = math.radians(klv_data['sensor_v_fov'])
+            
+            # Angular offset in radians
+            alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
+            alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
+            
+            logger.debug(f"FOV model: H={klv_data['sensor_h_fov']:.1f}°, V={klv_data['sensor_v_fov']:.1f}°")
+            logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
+        else:
+            # Fallback: assume 60° horizontal FOV
+            h_fov_rad = math.radians(60.0)
+            v_fov_rad = h_fov_rad * (frame_height / frame_width)
+            alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
+            alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
+            logger.debug(f"Using fallback FOV: 60° horizontal")
+        
+        # Total camera pointing direction in world frame
+        # Gimbal angles are now in world frame (either absolute or converted from relative)
+        # Now we just add the pixel offset angles
+        
+        # For small angles (typical case), we can approximate:
+        # - azimuth (horizontal direction): add horizontal pixel offset
+        # - elevation (vertical angle from horizon): add vertical pixel offset
+        camera_elevation = gimbal_pitch_world + math.degrees(alpha_y)  # degrees from horizontal (negative = down)
+        camera_azimuth = gimbal_yaw_world + math.degrees(alpha_x)  # degrees from north (0=N, 90=E)
+        
+        # Normalize azimuth to 0-360
+        camera_azimuth = camera_azimuth % 360.0
+        
+        logger.debug(f"Gimbal world frame: yaw={gimbal_yaw_world:.1f}°, pitch={gimbal_pitch_world:.1f}°, roll={gimbal_roll_world:.1f}°")
+        logger.debug(f"Pixel offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
+        logger.debug(f"Final camera pointing: azimuth={camera_azimuth:.1f}° (from N), elevation={camera_elevation:.1f}° (from horizon)")
+        
+        # Calculate ground distance using altitude and elevation angle
+        # Assuming flat ground at altitude = 0
+        if camera_elevation >= 0:
+            # Camera pointing at or above horizon - cannot determine ground point
+            logger.debug(f"Camera elevation {camera_elevation:.1f}° >= 0, cannot determine ground intersection")
+            return None
+        
+        # Distance to ground along camera line of sight
+        ground_range = platform_alt / abs(math.sin(math.radians(camera_elevation)))
+        
+        # Horizontal distance to target
+        horizontal_distance = platform_alt / abs(math.tan(math.radians(camera_elevation)))
+        
+        logger.debug(f"Altitude: {platform_alt:.1f}m, Range: {ground_range:.1f}m, H-dist: {horizontal_distance:.1f}m")
+        
+        # Convert to lat/lon offset
+        # Approximate conversion: 1° latitude ≈ 111,320 meters
+        # 1° longitude ≈ 111,320 * cos(latitude) meters
+        meters_per_degree_lat = 111320.0
+        meters_per_degree_lon = 111320.0 * math.cos(math.radians(platform_lat))
+        
+        # Calculate displacement in meters
+        displacement_north = horizontal_distance * math.cos(math.radians(camera_azimuth))
+        displacement_east = horizontal_distance * math.sin(math.radians(camera_azimuth))
+        
+        # Calculate target coordinates
+        target_lat = platform_lat + (displacement_north / meters_per_degree_lat)
+        target_lon = platform_lon + (displacement_east / meters_per_degree_lon)
+        
+        logger.debug(f"Displacement: N={displacement_north:.1f}m, E={displacement_east:.1f}m")
+        logger.debug(f"Target coordinates: {target_lat:.6f}, {target_lon:.6f}")
+        
+        # Determine which method was used for gimbal angles
+        if has_absolute:
+            gimbal_method = 'absolute_world_frame'
+        elif has_relative:
+            gimbal_method = 'relative_approx_transform'
+        else:
+            gimbal_method = 'fallback_nadir'
+        
+        return {
+            'latitude': target_lat,
+            'longitude': target_lon,
+            'estimated_ground_distance_m': horizontal_distance,
+            'camera_azimuth_deg': camera_azimuth,
+            'camera_elevation_deg': camera_elevation,
+            'calculation_method': 'photogrammetry',
+            'gimbal_method': gimbal_method,
+            'has_camera_specs': bool(sensor_width_mm and sensor_height_mm and focal_length_mm)
+        }
+        
+    except Exception as e:
+        logger.debug(f"Error calculating object coordinates: {e}", exc_info=True)
+        return None
+
+
+def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_width=None, frame_height=None):
+    """
+    Create metadata packet with detections and geographic coordinates.
+    
+    Args:
+        klv_data: Telemetry data from KLV decoder
+        detections: List of detection dictionaries from YOLO
+        frame_num: Frame number
+        timestamp: Timestamp string
+        frame_width: Video frame width in pixels (optional)
+        frame_height: Video frame height in pixels (optional)
+    
+    Returns:
+        dict: Complete metadata packet
+    """
+    # Log telemetry data periodically for debugging
+    if frame_num % 100 == 0:
+        if klv_data:
+            logger.info(f"KLV data at frame {frame_num}: {klv_data}")
+            # Check for GPS data
+            has_gps = all(k in klv_data for k in ['latitude', 'longitude', 'altitude'])
+            if not has_gps:
+                logger.warning(f"⚠ Missing GPS data in telemetry! Cannot calculate object coordinates. Present fields: {list(klv_data.keys())}")
+        else:
+            logger.warning(f"⚠ No KLV data at frame {frame_num}")
+    
+    # Enrich detections with geographic coordinates
+    enriched_detections = []
+    coords_calculated = 0
+    coords_failed = 0
+    
+    for detection in detections:
+        enriched_detection = detection.copy()
+        
+        # Calculate geographic coordinates if we have necessary data
+        if klv_data and frame_width and frame_height:
+            try:
+                bbox = detection.get('bbox')
+                if bbox:
+                    geo_coords = calculate_object_coordinates(bbox, klv_data, frame_width, frame_height)
+                    if geo_coords:
+                        enriched_detection['geo_coordinates'] = geo_coords
+                        coords_calculated += 1
+                        if frame_num % 100 == 0:
+                            logger.info(f"  ✓ Detection '{detection['class_name']}' → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
+                    else:
+                        coords_failed += 1
+            except Exception as e:
+                logger.debug(f"Failed to calculate coordinates for detection: {e}")
+                coords_failed += 1
+        
+        enriched_detections.append(enriched_detection)
+    
+    if frame_num % 100 == 0 and detections:
+        logger.info(f"Coordinates calculated: {coords_calculated}/{len(detections)} detections")
+   
+    # Updating drone position
+    enriched_detections.append(
+        {
+        "class_id": -1,
+        "class_name": "Parrot",
+        "confidence": 1,
+        "latitude": klv_data['latitude'] if 'latitude' in klv_data else None,
+        "longitude": klv_data['longitude'] if 'longitude' in klv_data else None,
+        "altitude": klv_data['altitude'] if 'altitude' in klv_data else None
+        }
+    )
+
     return {
         'frame': frame_num,
         'timestamp': timestamp,
         'telemetry': klv_data if klv_data else {},
-        'detections': detections,
-        'detection_count': len(detections)
+        'detections': enriched_detections,
+        'detection_count': len(enriched_detections)
     }
 
 
@@ -380,7 +653,8 @@ class BasePipeline:
                  device='auto', classes=None, show_overlay=True,
                  metadata_file=None, skip_frames=0, srt_latency=120,
                  metadata_host=None, metadata_port=5555,
-                 sse_port=None, id3_interval=30):
+                 sse_port=None, id3_interval=30,
+                 detections_dir='detections', detection_log_interval=5.0, save_detection_images=True):
         self.input_srt = input_srt
         self.output_rtsp = output_rtsp
         self.model_path = model_path
@@ -395,6 +669,9 @@ class BasePipeline:
         self.metadata_port = metadata_port
         self.sse_port = sse_port
         self.id3_interval = id3_interval
+        self.detections_dir = detections_dir
+        self.detection_log_interval = detection_log_interval
+        self.save_detection_images = save_detection_images
 
         self.model = None
         self.container = None
@@ -409,6 +686,15 @@ class BasePipeline:
         self.klv_pts = None
         self.latest_detections = []
         self.metadata_buffer = deque(maxlen=1000)
+        self.last_detection_log_time = None
+        
+        # Initialize detections directory
+        if self.detections_dir:
+            import os
+            detections_path = os.path.abspath(self.detections_dir)
+            os.makedirs(detections_path, exist_ok=True)
+            self.detections_dir = detections_path
+            logger.info(f"✓ Detection logging enabled → {detections_path} (interval: {self.detection_log_interval}s)")
 
         # UDP socket for metadata streaming
         self.metadata_socket = None
@@ -469,6 +755,8 @@ class BasePipeline:
         self.video_stream = video_stream
         self.data_stream = data_stream
         self.fps = fps
+        self.frame_width = width
+        self.frame_height = height
         self.start_time = time.time()
         return width, height, int(fps)
 
@@ -481,6 +769,71 @@ class BasePipeline:
 
     def inject_metadata(self, metadata):
         pass
+
+    def _save_detections(self, metadata, frame_image=None):
+        """
+        Save detection data to disk.
+        
+        Args:
+            metadata: Metadata packet with detections
+            frame_image: Optional numpy array of the current frame for saving detection crops
+        """
+        if not self.detections_dir:
+            return
+        
+        try:
+            import os
+            from datetime import datetime
+            
+            # Create timestamp-based filename
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # milliseconds
+            
+            # Save metadata as JSON
+            json_filename = os.path.join(self.detections_dir, f"detections_{timestamp}.json")
+            with open(json_filename, 'w') as f:
+                json.dump(metadata, f, indent=2, default=str)
+            
+            detections_with_coords = len([d for d in metadata.get('detections', []) if 'geo_coordinates' in d])
+            total_detections = len(metadata.get('detections', []))
+            
+            logger.info(f"Saved detections: {total_detections} objects ({detections_with_coords} with coords) → {json_filename}")
+            
+            # Optionally save cropped detection images
+            if self.save_detection_images and frame_image is not None and total_detections > 0:
+                crops_dir = os.path.join(self.detections_dir, f"crops_{timestamp}")
+                os.makedirs(crops_dir, exist_ok=True)
+                
+                for idx, detection in enumerate(metadata.get('detections', [])):
+                    try:
+                        bbox = detection.get('bbox')
+                        if bbox:
+                            x1, y1, x2, y2 = map(int, bbox)
+                            # Ensure coordinates are within image bounds
+                            h, w = frame_image.shape[:2]
+                            x1, y1 = max(0, x1), max(0, y1)
+                            x2, y2 = min(w, x2), min(h, y2)
+                            
+                            if x2 > x1 and y2 > y1:
+                                crop = frame_image[y1:y2, x1:x2]
+                                class_name = detection.get('class_name', 'unknown')
+                                confidence = detection.get('confidence', 0.0)
+                                
+                                # Include coordinates in filename if available
+                                if 'geo_coordinates' in detection:
+                                    geo = detection['geo_coordinates']
+                                    crop_filename = f"{idx:03d}_{class_name}_{confidence:.2f}_lat{geo['latitude']:.6f}_lon{geo['longitude']:.6f}.jpg"
+                                else:
+                                    crop_filename = f"{idx:03d}_{class_name}_{confidence:.2f}.jpg"
+                                
+                                crop_path = os.path.join(crops_dir, crop_filename)
+                                cv2.imwrite(crop_path, crop)
+                    except Exception as e:
+                        logger.debug(f"Error saving detection crop {idx}: {e}")
+                
+                logger.info(f"Saved {total_detections} detection crops → {crops_dir}")
+        
+        except Exception as e:
+            logger.error(f"Error saving detections: {e}", exc_info=True)
 
     def stop(self):
         self._stop_event.set()
@@ -642,8 +995,24 @@ class BasePipeline:
                                 if self.show_overlay:
                                     annotated_frame = overlay_metadata(annotated_frame, self.frame_count, self.latest_klv, detections, current_fps)
 
-                                metadata = create_metadata_packet(self.latest_klv, detections, self.frame_count, datetime.now().isoformat())
+                                metadata = create_metadata_packet(
+                                    self.latest_klv, 
+                                    detections, 
+                                    self.frame_count, 
+                                    datetime.now().isoformat(),
+                                    frame_width=self.frame_width,
+                                    frame_height=self.frame_height
+                                )
                                 self.metadata_buffer.append(metadata)
+
+                                # Periodic detection logging to disk
+                                if self.detections_dir and detections:
+                                    if self.last_detection_log_time is None:
+                                        self.last_detection_log_time = now
+                                    
+                                    if (now - self.last_detection_log_time) >= self.detection_log_interval:
+                                        self._save_detections(metadata, img)
+                                        self.last_detection_log_time = now
 
                                 # UDP
                                 if self.metadata_socket:
@@ -960,6 +1329,9 @@ def main():
     parser.add_argument('--id3-interval', type=int, default=30, help='Insert ID3 tag every N frames (ID3 mode)')
     parser.add_argument('--mode', type=str, default='auto', choices=['auto', 'id3', 'basic'], help='Pipeline selection mode')
     parser.add_argument('--log-level', type=str, default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], help='Logging level')
+    parser.add_argument('--detections-dir', type=str, default=None, help='Directory to save detection logs (JSON and optional images)')
+    parser.add_argument('--detection-log-interval', type=float, default=5.0, help='Interval in seconds to save detection logs')
+    parser.add_argument('--save-detection-images', action='store_true', help='Save cropped images of detected objects')
 
     args = parser.parse_args()
     logging.getLogger().setLevel(getattr(logging, args.log_level))
@@ -986,6 +1358,9 @@ def main():
             metadata_port=args.metadata_port,
             sse_port=args.sse_port,
             id3_interval=args.id3_interval,
+            detections_dir=None,
+            detection_log_interval=5.0,
+            save_detection_images=False,
         )
         pipeline.run()
     except Exception as e:
