@@ -459,8 +459,8 @@ class TAKCoTSender:
                         
                         # Log if we dropped any detections
                         dropped_count = total_pending - len(detections_to_send)
-                        if dropped_count > 0:
-                            logger.info(f"📡 TAK batch: sending {len(detections_to_send)} detections, dropping {dropped_count} excess")
+                        # if dropped_count > 0:
+                        #     logger.info(f"📡 TAK batch: sending {len(detections_to_send)} detections, dropping {dropped_count} excess")
                         
                         # Update last batch send time
                         self.last_batch_send_time = current_time
@@ -692,10 +692,10 @@ class TAKCoTSender:
                             logger.warning(f"⚠️ TAK queue full, {self.messages_dropped} messages dropped so far")
             
             # Log batch statistics
-            if success_count > 0:
-                logger.info(f"📡 TAK batch sent: {success_count}/{len(detection_batch)} detections")
-            elif len(detection_batch) > 0:
-                logger.debug(f"📡 TAK batch: all {len(detection_batch)} detections were rate-limited")
+            # if success_count > 0:
+            #     logger.info(f"📡 TAK batch sent: {success_count}/{len(detection_batch)} detections")
+            # elif len(detection_batch) > 0:
+            #     logger.debug(f"📡 TAK batch: all {len(detection_batch)} detections were rate-limited")
             
             return success_count > 0
                     
@@ -848,200 +848,151 @@ def extract_detections(results):
 def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
     """
     Calculate geographic coordinates (lat/lon) for a detected object using photogrammetry.
-    
-    This function transforms a pixel location into a 3D ray in the camera's reference
-    frame, then rotates that ray into the world reference frame using gimbal and
-    platform orientation. Finally, it calculates the intersection of this ray with
-    the ground plane (assumed at sea level, altitude=0) to estimate the object's
-    geographic coordinates.
 
     Args:
         bbox: Bounding box [x1, y1, x2, y2] in pixels
         klv_data: Telemetry data containing platform and camera information
         frame_width: Video frame width in pixels
         frame_height: Video frame height in pixels
-    
+
     Returns:
         dict: Geographic coordinates and metadata, or None if calculation fails
     """
+    import math
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     try:
-        # 1. --- Extract required fields from KLV data ---
+        # --- Validate required KLV fields ---
         required_fields = ['latitude', 'longitude', 'altitude']
         missing_fields = [f for f in required_fields if f not in klv_data or klv_data[f] is None]
-        
+
         if missing_fields:
             logger.debug(f"Missing required fields for coordinate calculation: {missing_fields}")
             return None
-        
-        # Platform position
-        platform_lat = klv_data['latitude']  # degrees
-        platform_lon = klv_data['longitude']  # degrees
-        platform_alt = klv_data['altitude']  # meters above sea level
 
-        # Platform orientation (default to 0 if missing)
-        platform_roll = klv_data.get('roll', 0.0)  # degrees
-        platform_pitch = klv_data.get('pitch', 0.0)  # degrees
-        platform_heading = klv_data.get('heading', 0.0)  # degrees (0=North, 90=East)
-        
-        # Gimbal orientation - prefer absolute (world frame) over relative (platform frame)
+        # --- Platform position/orientation ---
+        platform_lat = klv_data['latitude']     # degrees
+        platform_lon = klv_data['longitude']    # degrees
+        platform_alt = klv_data['altitude']     # meters
+
+        platform_roll = klv_data.get('roll', 0.0)       # degrees
+        platform_pitch = klv_data.get('pitch', 0.0)     # degrees
+        platform_heading = klv_data.get('heading', 0.0) # degrees (0 = North)
+
+        # --- Gimbal orientation handling ---
         has_absolute = 'gimbal_yaw_abs' in klv_data or 'gimbal_pitch_abs' in klv_data
         has_relative = 'gimbal_yaw_rel' in klv_data or 'gimbal_pitch_rel' in klv_data
-        
+
         if has_absolute:
-            gimbal_yaw_world = klv_data.get('gimbal_yaw_abs', platform_heading)
+            gimbal_yaw_world = klv_data.get('gimbal_yaw_abs', 0.0)
             gimbal_pitch_world = klv_data.get('gimbal_pitch_abs', -90.0)
             gimbal_roll_world = klv_data.get('gimbal_roll_abs', 0.0)
-            gimbal_method = 'absolute_world_frame'
+            gimbal_method = "absolute_world_frame"
             logger.debug("Using gimbal ABSOLUTE angles (world frame)")
         elif has_relative:
-            gimbal_roll_rel = klv_data.get('gimbal_roll_rel', 0.0)
-            gimbal_pitch_rel = klv_data.get('gimbal_pitch_rel', 0.0)
             gimbal_yaw_rel = klv_data.get('gimbal_yaw_rel', 0.0)
-            
-            # APPROXIMATE transformation: Assumes small platform roll/pitch.
-            # A full solution requires composing rotation matrices.
-            gimbal_yaw_world = (platform_heading + gimbal_yaw_rel) % 360
-            gimbal_pitch_world = platform_pitch + gimbal_pitch_rel
-            gimbal_roll_world = platform_roll + gimbal_roll_rel
-            gimbal_method = 'relative_approx_transform'
-            logger.debug("Using gimbal RELATIVE angles (approximate world frame conversion)")
+            gimbal_pitch_rel = klv_data.get('gimbal_pitch_rel', -90.0)
+            gimbal_roll_rel = klv_data.get('gimbal_roll_rel', 0.0)
+
+            # Approximate world transformation
+            gimbal_yaw_world = platform_heading + gimbal_yaw_rel
+            gimbal_pitch_world = gimbal_pitch_rel + platform_pitch
+            gimbal_roll_world = gimbal_roll_rel + platform_roll
+            gimbal_method = "relative_approx_transform"
+
+            logger.debug(f"Using gimbal RELATIVE angles: converted to world frame (APPROXIMATE)")
         else:
             gimbal_yaw_world = platform_heading
-            gimbal_pitch_world = -90.0  # Straight down (nadir)
+            gimbal_pitch_world = -90.0
             gimbal_roll_world = 0.0
-            gimbal_method = 'fallback_nadir'
+            gimbal_method = "fallback_nadir"
             logger.debug("No gimbal data, assuming nadir (straight down)")
 
-        # 2. --- Calculate pixel's angular offset from camera center ---
-        bbox_center_x = (bbox[0] + bbox[2]) / 2.0
-        bbox_center_y = (bbox[1] + bbox[3]) / 2.0
-        
+        # --- Camera specifications ---
+        sensor_width_mm = klv_data.get('sensor_width_mm')
+        sensor_height_mm = klv_data.get('sensor_height_mm')
+        focal_length_mm = klv_data.get('focal_length_mm')
+
+        # --- Bounding box center (in pixels) ---
+        x1, y1, x2, y2 = bbox
+        bbox_center_x = (x1 + x2) / 2.0
+        bbox_center_y = (y1 + y2) / 2.0
+
         pixel_offset_x = bbox_center_x - frame_width / 2.0
         pixel_offset_y = bbox_center_y - frame_height / 2.0
-        
-        has_camera_specs = False
-        if klv_data.get('focal_length_mm') and klv_data.get('sensor_width_mm'):
-            focal_length = klv_data['focal_length_mm']
-            sensor_width = klv_data['sensor_width_mm']
-            sensor_height = klv_data.get('sensor_height_mm', sensor_width * (frame_height / frame_width))
-            
-            # Angle = atan(pixel_distance_on_sensor / focal_length)
-            alpha_x = math.atan2(pixel_offset_x * (sensor_width / frame_width), focal_length)
-            alpha_y = math.atan2(pixel_offset_y * (sensor_height / frame_height), focal_length)
+
+        # --- Calculate angular offset from image center ---
+        if sensor_width_mm and sensor_height_mm and focal_length_mm:
+            angle_per_pixel_x = math.atan(sensor_width_mm / (2.0 * focal_length_mm)) * 2.0 / frame_width
+            angle_per_pixel_y = math.atan(sensor_height_mm / (2.0 * focal_length_mm)) * 2.0 / frame_height
+            alpha_x = pixel_offset_x * angle_per_pixel_x
+            alpha_y = pixel_offset_y * angle_per_pixel_y
             has_camera_specs = True
-            logger.debug(f"Camera model: focal={focal_length}mm, sensor={sensor_width}x{sensor_height}mm")
-        elif 'sensor_h_fov' in klv_data:
+        elif 'sensor_h_fov' in klv_data and 'sensor_v_fov' in klv_data:
             h_fov_rad = math.radians(klv_data['sensor_h_fov'])
-            v_fov_rad = math.radians(klv_data.get('sensor_v_fov', klv_data['sensor_h_fov'] * (frame_height / frame_width)))
-            
-            alpha_x = (pixel_offset_x / (frame_width / 2.0)) * math.tan(h_fov_rad / 2.0)
-            alpha_y = (pixel_offset_y / (frame_height / 2.0)) * math.tan(v_fov_rad / 2.0)
-            alpha_x = math.atan(alpha_x)
-            alpha_y = math.atan(alpha_y)
-            logger.debug(f"FOV model: H={klv_data['sensor_h_fov']:.1f}°, V={klv_data.get('sensor_v_fov', 0):.1f}°")
+            v_fov_rad = math.radians(klv_data['sensor_v_fov'])
+            alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
+            alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
+            has_camera_specs = True
         else:
-            # Fallback to a default FOV if no camera info is available
+            # Fallback to default FOV
             h_fov_rad = math.radians(60.0)
             v_fov_rad = h_fov_rad * (frame_height / frame_width)
-            alpha_x = (pixel_offset_x / (frame_width / 2.0)) * math.tan(h_fov_rad / 2.0)
-            alpha_y = (pixel_offset_y / (frame_height / 2.0)) * math.tan(v_fov_rad / 2.0)
-            alpha_x = math.atan(alpha_x)
-            alpha_y = math.atan(alpha_y)
-            logger.debug("Using fallback FOV: 60° horizontal")
-        
-        logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
+            alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
+            alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
+            has_camera_specs = False
 
-        # 3. --- Define the 3D ray in the camera's coordinate system ---
-        # Camera coordinates: X=right, Y=down, Z=forward (optical axis)
-        cam_ray = np.array([
-            math.tan(alpha_x),
-            math.tan(alpha_y),
-            1.0
-        ])
-        # Normalize the ray vector
-        cam_ray /= np.linalg.norm(cam_ray)
+        # --- Camera pointing direction (world frame) ---
+        camera_azimuth = (gimbal_yaw_world + math.degrees(alpha_x)) % 360.0
+        camera_elevation = gimbal_pitch_world + math.degrees(alpha_y)  # negative = downward
 
-        # 4. --- Create the rotation matrix to transform from Camera to World frame ---
-        # Convert world-frame gimbal angles to radians
-        yaw_rad = math.radians(gimbal_yaw_world)    # Azimuth from North
-        pitch_rad = math.radians(gimbal_pitch_world) # Elevation from horizon (-90 is down)
-        roll_rad = math.radians(gimbal_roll_world)   # Roll
+        logger.debug(f"Final camera pointing: azimuth={camera_azimuth:.1f}°, elevation={camera_elevation:.1f}°")
 
-        # First, a matrix to convert from Camera frame (X-right, Y-down, Z-fwd)
-        # to a standard Body frame (X-fwd, Y-right, Z-down)
-        R_body_from_cam = np.array([
-            [0, 0, 1],  # Body X (fwd) = Cam Z
-            [1, 0, 0],  # Body Y (right) = Cam X
-            [0, 1, 0],  # Body Z (down) = Cam Y
-        ])
-
-        # Second, the main rotation matrix from Body frame to World (NED - North, East, Down)
-        # This is a standard ZYX Euler angle rotation sequence (Yaw, Pitch, Roll)
-        cy, sy = math.cos(yaw_rad), math.sin(yaw_rad)
-        cp, sp = math.cos(pitch_rad), math.sin(pitch_rad)
-        cr, sr = math.cos(roll_rad), math.sin(roll_rad)
-
-        R_ned_from_body = np.array([
-            [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
-            [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
-            [-sp,   cp*sr,            cp*cr]
-        ])
-
-        # Combine rotations: first to body frame, then to world frame
-        world_ray = R_ned_from_body @ R_body_from_cam @ cam_ray
-        
-        world_north, world_east, world_down = world_ray
-        logger.debug(f"Ray direction (NED): N={world_north:.3f}, E={world_east:.3f}, D={world_down:.3f}")
-
-        # 5. --- Calculate ground intersection ---
-        # Check if ray points downward. If world_down is zero or negative, it's parallel to or points away from the ground.
-        if world_down <= 1e-6: # Use a small epsilon to avoid division by zero
-            logger.warning(f"Camera pointing at or above horizon (down vector={world_down:.4f}), cannot determine ground intersection.")
+        # --- Compute ground intersection ---
+        if camera_elevation >= 0:
+            # Looking above the horizon, no ground intersection
+            logger.debug(f"Camera elevation {camera_elevation:.1f}° >= 0, cannot determine ground intersection")
             return None
-            
-        # Ray equation: P = P0 + t * direction. We want the Z component (altitude) to be 0.
-        # platform_alt - t * world_down = 0  (Since platform_alt is positive up, and world_down is positive down)
-        # Note: This assumes a flat earth at sea level (altitude=0).
-        t = platform_alt / world_down
-        
-        # Horizontal displacement
-        displacement_north = t * world_north
-        displacement_east = t * world_east
-        horizontal_distance = math.sqrt(displacement_north**2 + displacement_east**2)
-        
-        logger.debug(f"Altitude: {platform_alt:.1f}m, H-dist: {horizontal_distance:.1f}m")
-        logger.debug(f"Displacement: N={displacement_north:.1f}m, E={displacement_east:.1f}m")
 
-        # 6. --- Convert displacement to new Lat/Lon coordinates ---
-        # Earth radius in meters
-        R_EARTH = 6378137.0
-        
-        # Convert displacement to angular distance
-        d_lat = displacement_north / R_EARTH
-        d_lon = displacement_east / (R_EARTH * math.cos(math.radians(platform_lat)))
-        
-        target_lat = platform_lat + math.degrees(d_lat)
-        target_lon = platform_lon + math.degrees(d_lon)
-        
-        #logger.info(f"Target coordinates: {target_lat:.6f}, {target_lon:.6f}")
-        
-        # 7. --- Final metadata ---
-        camera_azimuth = math.degrees(math.atan2(world_east, world_north)) % 360
-        camera_elevation = math.degrees(math.asin(-world_down)) # Elevation is angle from horizon, up is positive
-        
+        # Convert to downward angle (from horizontal)
+        look_down_angle = abs(camera_elevation)
+
+        # Prevent extreme values for near-horizontal shots
+        if look_down_angle < 5:
+            logger.debug(f"Look-down angle too shallow ({look_down_angle:.1f}°); ignoring object")
+            return None
+
+        # Horizontal distance from drone to ground point (flat Earth assumption)
+        horizontal_distance = platform_alt * math.tan(math.radians(look_down_angle))
+
+        # --- Convert displacement to geographic coordinates ---
+        meters_per_degree_lat = 111320.0
+        meters_per_degree_lon = 111320.0 * math.cos(math.radians(platform_lat))
+
+        displacement_north = horizontal_distance * math.cos(math.radians(camera_azimuth))
+        displacement_east = horizontal_distance * math.sin(math.radians(camera_azimuth))
+
+        target_lat = platform_lat + (displacement_north / meters_per_degree_lat)
+        target_lon = platform_lon + (displacement_east / meters_per_degree_lon)
+
+        logger.debug(f"Displacement: N={displacement_north:.1f}m, E={displacement_east:.1f}m")
+        logger.debug(f"Target coordinates: {target_lat:.6f}, {target_lon:.6f}")
+
         return {
-            'latitude': target_lat,
-            'longitude': target_lon,
-            'estimated_ground_distance_m': horizontal_distance,
-            'camera_azimuth_deg': camera_azimuth,
-            'camera_elevation_deg': camera_elevation,
-            'calculation_method': 'photogrammetry_3d_ray_matrix',
-            'gimbal_method': gimbal_method,
-            'has_camera_specs': has_camera_specs
+            "latitude": target_lat,
+            "longitude": target_lon,
+            "estimated_ground_distance_m": horizontal_distance,
+            "camera_azimuth_deg": camera_azimuth,
+            "camera_elevation_deg": camera_elevation,
+            "calculation_method": "photogrammetry",
+            "gimbal_method": gimbal_method,
+            "has_camera_specs": has_camera_specs
         }
-        
+
     except Exception as e:
-        logger.error(f"Error calculating coordinates: {e}", exc_info=True)
+        logger.exception(f"Coordinate estimation failed: {e}")
         return None
 
 
@@ -1093,9 +1044,9 @@ def create_metadata_packet(klv_data, detections, frame_num, timestamp, frame_wid
                     if geo_coords:
                         enriched_detection['geo_coordinates'] = geo_coords
                         coords_calculated += 1
-                        if frame_num % 2000 == 0:
-                            track_info = f" [ID:{detection['track_id']}]" if 'track_id' in detection else ""
-                            logger.info(f"  ✓ Detection '{detection['class_name']}'{track_info} → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
+                        # if frame_num % 2000 == 0:
+                        #     track_info = f" [ID:{detection['track_id']}]" if 'track_id' in detection else ""
+                        #     logger.info(f"  ✓ Detection '{detection['class_name']}'{track_info} → ({geo_coords['latitude']:.6f}, {geo_coords['longitude']:.6f})")
                         
                         # Send to TAK server if enabled
                         if tak_sender and tak_sender.enabled:
@@ -1562,14 +1513,27 @@ class BasePipeline:
                 self.video_stream = video_stream
                 self.data_stream = data_stream
                 
-                # Test the connection by trying to read a packet
-                logger.info("Testing reconnected stream...")
-                test_packets = list(self.container.demux([self.video_stream]))
-                if test_packets:
-                    logger.info("✅ Successfully reconnected to SRT stream")
+                # Skip stream testing on later attempts to avoid hanging
+                if attempt >= 2:
+                    logger.info("✅ Reconnected to SRT stream (skipping detailed test to avoid hanging)")
                     return True
-                else:
-                    logger.warning("No packets received from reconnected stream")
+                
+                # Test the connection by checking if streams are available
+                logger.info("Testing reconnected stream...")
+                try:
+                    # Simple test: just check if we can access the stream properties
+                    if (self.video_stream and 
+                        hasattr(self.video_stream, 'width') and 
+                        hasattr(self.video_stream, 'height') and
+                        self.video_stream.width > 0 and 
+                        self.video_stream.height > 0):
+                        logger.info("✅ Successfully reconnected to SRT stream")
+                        return True
+                    else:
+                        logger.warning("Stream properties not ready after reconnection")
+                        continue
+                except Exception as test_error:
+                    logger.warning(f"Stream test failed: {test_error}")
                     continue
                     
             except Exception as e:
@@ -1920,6 +1884,13 @@ class ID3Pipeline(BasePipeline):
         input_queue.set_property("max-size-time", 200000000)  # 200ms
         input_queue.set_property("leaky", "downstream")
         
+        # Add dedicated encoder queue to smooth out x264enc processing
+        encoder_queue = Gst.ElementFactory.make("queue", "encoder_queue")
+        encoder_queue.set_property("max-size-buffers", 0)
+        encoder_queue.set_property("max-size-bytes", 0)
+        encoder_queue.set_property("max-size-time", 1000000000)  # 1 second buffer
+        encoder_queue.set_property("leaky", "downstream")
+        
         x264enc = Gst.ElementFactory.make("x264enc", "encoder")
         if x264enc is None:
             raise RuntimeError("Failed to create 'x264enc' (install gstreamer1.0-plugins-ugly)")
@@ -1956,7 +1927,7 @@ class ID3Pipeline(BasePipeline):
         fdsink.set_property("fd", self.ffmpeg_process.stdin.fileno())
         fdsink.set_property("sync", False)
 
-        for e in [appsrc, videoconvert, videoscale, input_queue, x264enc, h264parse, output_queue, mpegtsmux, fdsink]:
+        for e in [appsrc, videoconvert, videoscale, input_queue, encoder_queue, x264enc, h264parse, output_queue, mpegtsmux, fdsink]:
             if not e:
                 raise RuntimeError("Failed to create GStreamer element")
             pipeline.add(e)
@@ -1967,8 +1938,10 @@ class ID3Pipeline(BasePipeline):
             raise RuntimeError("Failed to link videoconvert → videoscale")
         if not videoscale.link(input_queue):
             raise RuntimeError("Failed to link videoscale → input_queue")
-        if not input_queue.link(x264enc):
-            raise RuntimeError("Failed to link input_queue → x264enc")
+        if not input_queue.link(encoder_queue):
+            raise RuntimeError("Failed to link input_queue → encoder_queue")
+        if not encoder_queue.link(x264enc):
+            raise RuntimeError("Failed to link encoder_queue → x264enc")
         if not x264enc.link(h264parse):
             raise RuntimeError("Failed to link x264enc → h264parse")
         if not h264parse.link(output_queue):
