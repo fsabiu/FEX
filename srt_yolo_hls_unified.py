@@ -734,7 +734,6 @@ def extract_detections(results):
             detections.append(detection)
     return detections
 
-
 def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
     """
     Calculate geographic coordinates (lat/lon) for a detected object using photogrammetry.
@@ -749,6 +748,7 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
         dict: Geographic coordinates and metadata, or None if calculation fails
     """
     import math
+    import numpy as np
     
     try:
         # Extract required fields from KLV data
@@ -770,33 +770,28 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
         platform_heading = klv_data.get('heading', 0.0)  # degrees (0=North, 90=East)
         
         # Gimbal orientation - prefer absolute (world frame) over relative (platform frame)
-        # Absolute angles are in world frame, much simpler to work with
         has_absolute = 'gimbal_yaw_abs' in klv_data or 'gimbal_pitch_abs' in klv_data
         has_relative = 'gimbal_yaw_rel' in klv_data or 'gimbal_pitch_rel' in klv_data
         
         if has_absolute:
-            # Use absolute gimbal angles (already in world frame)
             gimbal_yaw_world = klv_data.get('gimbal_yaw_abs', 0.0)  # degrees (0=North, 90=East)
             gimbal_pitch_world = klv_data.get('gimbal_pitch_abs', -90.0)  # degrees (negative = down from horizon)
             gimbal_roll_world = klv_data.get('gimbal_roll_abs', 0.0)  # degrees
             logger.debug("Using gimbal ABSOLUTE angles (world frame)")
         elif has_relative:
-            # Use relative gimbal angles (relative to platform) - need to transform to world frame
             gimbal_roll_rel = klv_data.get('gimbal_roll_rel', 0.0)  # degrees
             gimbal_pitch_rel = klv_data.get('gimbal_pitch_rel', -90.0)  # degrees
             gimbal_yaw_rel = klv_data.get('gimbal_yaw_rel', 0.0)  # degrees
             
-            # SIMPLIFIED transformation (assumes small platform roll/pitch, otherwise need full 3D rotation matrices)
-            # This is approximate but works for typical drone operations (roll/pitch < 30°)
+            # SIMPLIFIED transformation (assumes small platform roll/pitch)
             gimbal_yaw_world = platform_heading + gimbal_yaw_rel
-            gimbal_pitch_world = gimbal_pitch_rel + platform_pitch  # Approximate
-            gimbal_roll_world = gimbal_roll_rel + platform_roll  # Approximate
+            gimbal_pitch_world = gimbal_pitch_rel + platform_pitch
+            gimbal_roll_world = gimbal_roll_rel + platform_roll
             
             logger.debug(f"Using gimbal RELATIVE angles: converted to world frame (APPROXIMATE)")
             logger.debug(f"  Platform: heading={platform_heading:.1f}°, pitch={platform_pitch:.1f}°, roll={platform_roll:.1f}°")
             logger.debug(f"  Gimbal rel: yaw={gimbal_yaw_rel:.1f}°, pitch={gimbal_pitch_rel:.1f}°, roll={gimbal_roll_rel:.1f}°")
         else:
-            # Fallback: assume nadir (straight down)
             gimbal_yaw_world = platform_heading
             gimbal_pitch_world = -90.0  # straight down
             gimbal_roll_world = 0.0
@@ -818,83 +813,125 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
         
         # Calculate angular offset from camera center
         if sensor_width_mm and sensor_height_mm and focal_length_mm:
-            # Use camera model with focal length
             angle_per_pixel_x = math.atan(sensor_width_mm / (2.0 * focal_length_mm)) * 2.0 / frame_width
             angle_per_pixel_y = math.atan(sensor_height_mm / (2.0 * focal_length_mm)) * 2.0 / frame_height
             
-            # Angular offset in radians
-            alpha_x = pixel_offset_x * angle_per_pixel_x  # horizontal angle
-            alpha_y = pixel_offset_y * angle_per_pixel_y  # vertical angle
+            alpha_x = pixel_offset_x * angle_per_pixel_x  # horizontal angle (radians)
+            alpha_y = pixel_offset_y * angle_per_pixel_y  # vertical angle (radians)
             
             logger.debug(f"Camera model: focal={focal_length_mm}mm, sensor={sensor_width_mm}x{sensor_height_mm}mm")
             logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
         elif 'sensor_h_fov' in klv_data and 'sensor_v_fov' in klv_data:
-            # Use field of view
             h_fov_rad = math.radians(klv_data['sensor_h_fov'])
             v_fov_rad = math.radians(klv_data['sensor_v_fov'])
             
-            # Angular offset in radians
             alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
             alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
             
             logger.debug(f"FOV model: H={klv_data['sensor_h_fov']:.1f}°, V={klv_data['sensor_v_fov']:.1f}°")
             logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
         else:
-            # Fallback: assume 60° horizontal FOV
             h_fov_rad = math.radians(60.0)
             v_fov_rad = h_fov_rad * (frame_height / frame_width)
             alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
             alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
             logger.debug(f"Using fallback FOV: 60° horizontal")
         
-        # Total camera pointing direction in world frame
-        # Gimbal angles are now in world frame (either absolute or converted from relative)
-        # Now we just add the pixel offset angles
+        # ===== KEY FIX: Proper 3D ray direction calculation =====
+        # Convert gimbal pointing to a 3D unit vector in camera coordinates
+        # Camera coordinates: x=right, y=down, z=forward (optical axis)
         
-        # For small angles (typical case), we can approximate:
-        # - azimuth (horizontal direction): add horizontal pixel offset
-        # - elevation (vertical angle from horizon): add vertical pixel offset
-        camera_elevation = gimbal_pitch_world + math.degrees(alpha_y)  # degrees from horizontal (negative = down)
-        camera_azimuth = gimbal_yaw_world + math.degrees(alpha_x)  # degrees from north (0=N, 90=E)
+        # Start with camera pointing straight ahead (z-axis)
+        # Then apply pixel offsets in camera frame
+        # alpha_x: horizontal offset (rotation around y-axis, affects x and z)
+        # alpha_y: vertical offset (rotation around x-axis, affects y and z)
         
-        # Normalize azimuth to 0-360
-        camera_azimuth = camera_azimuth % 360.0
+        # Camera-frame ray direction (normalized)
+        cam_x = math.tan(alpha_x)  # right
+        cam_y = math.tan(alpha_y)  # down
+        cam_z = 1.0  # forward
         
-        logger.debug(f"Gimbal world frame: yaw={gimbal_yaw_world:.1f}°, pitch={gimbal_pitch_world:.1f}°, roll={gimbal_roll_world:.1f}°")
-        logger.debug(f"Pixel offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
-        logger.debug(f"Final camera pointing: azimuth={camera_azimuth:.1f}° (from N), elevation={camera_elevation:.1f}° (from horizon)")
+        # Normalize
+        mag = math.sqrt(cam_x**2 + cam_y**2 + cam_z**2)
+        cam_x /= mag
+        cam_y /= mag
+        cam_z /= mag
         
-        # Calculate ground distance using altitude and elevation angle
-        # Assuming flat ground at altitude = 0
-        if camera_elevation >= 0:
-            # Camera pointing at or above horizon - cannot determine ground point
-            logger.debug(f"Camera elevation {camera_elevation:.1f}° >= 0, cannot determine ground intersection")
+        # Convert gimbal angles to radians
+        yaw_rad = math.radians(gimbal_yaw_world)    # azimuth from north
+        pitch_rad = math.radians(gimbal_pitch_world) # elevation from horizon (negative = down)
+        roll_rad = math.radians(gimbal_roll_world)   # camera roll
+        
+        # Rotation matrices to transform from camera frame to world frame
+        # Apply: Roll -> Pitch -> Yaw (standard aerospace sequence)
+        
+        # Yaw rotation (around vertical Z-axis in world frame)
+        cos_yaw = math.cos(yaw_rad)
+        sin_yaw = math.sin(yaw_rad)
+        
+        # Pitch rotation (around lateral axis)
+        cos_pitch = math.cos(pitch_rad)
+        sin_pitch = math.sin(pitch_rad)
+        
+        # Roll rotation (around longitudinal axis)
+        cos_roll = math.cos(roll_rad)
+        sin_roll = math.sin(roll_rad)
+        
+        # Combined rotation from camera to world coordinates
+        # World frame: x=East, y=North, z=Up
+        # Camera frame: x=right, y=down, z=forward
+        
+        # Transform camera ray to world frame (simplified for typical gimbal setup)
+        # This assumes camera z-axis aligns with gimbal pointing direction
+        
+        # First apply roll
+        x1 = cam_x * cos_roll - cam_y * sin_roll
+        y1 = cam_x * sin_roll + cam_y * cos_roll
+        z1 = cam_z
+        
+        # Then pitch (note: camera y is down, so we need to handle sign correctly)
+        x2 = x1
+        y2 = -z1 * sin_pitch + y1 * cos_pitch  # Note: y is down in camera frame
+        z2 = z1 * cos_pitch + y1 * sin_pitch
+        
+        # Finally yaw (rotate in horizontal plane)
+        world_east = x2 * cos_yaw - y2 * sin_yaw
+        world_north = x2 * sin_yaw + y2 * cos_yaw
+        world_up = -z2  # Convert from camera down to world up
+        
+        logger.debug(f"Ray direction (world): E={world_east:.3f}, N={world_north:.3f}, U={world_up:.3f}")
+        
+        # Check if ray points downward
+        if world_up >= 0:
+            logger.debug(f"Camera pointing at or above horizon (up={world_up:.3f}), cannot determine ground intersection")
             return None
         
-        # Distance to ground along camera line of sight
-        ground_range = platform_alt / abs(math.sin(math.radians(camera_elevation)))
+        # Calculate intersection with ground plane (altitude = 0)
+        # Ray equation: P = P0 + t * direction
+        # Ground: z = 0
+        # Solve for t: platform_alt + t * world_up = 0
+        t = -platform_alt / world_up
         
-        # Horizontal distance to target
-        horizontal_distance = platform_alt / abs(math.tan(math.radians(camera_elevation)))
+        # Horizontal displacement
+        displacement_east = t * world_east
+        displacement_north = t * world_north
+        horizontal_distance = math.sqrt(displacement_east**2 + displacement_north**2)
         
-        logger.debug(f"Altitude: {platform_alt:.1f}m, Range: {ground_range:.1f}m, H-dist: {horizontal_distance:.1f}m")
+        logger.debug(f"Altitude: {platform_alt:.1f}m, H-dist: {horizontal_distance:.1f}m")
+        logger.debug(f"Displacement: N={displacement_north:.1f}m, E={displacement_east:.1f}m")
         
-        # Convert to lat/lon offset
-        # Approximate conversion: 1° latitude ≈ 111,320 meters
-        # 1° longitude ≈ 111,320 * cos(latitude) meters
+        # Convert to lat/lon
         meters_per_degree_lat = 111320.0
         meters_per_degree_lon = 111320.0 * math.cos(math.radians(platform_lat))
         
-        # Calculate displacement in meters
-        displacement_north = horizontal_distance * math.cos(math.radians(camera_azimuth))
-        displacement_east = horizontal_distance * math.sin(math.radians(camera_azimuth))
-        
-        # Calculate target coordinates
         target_lat = platform_lat + (displacement_north / meters_per_degree_lat)
         target_lon = platform_lon + (displacement_east / meters_per_degree_lon)
         
-        logger.debug(f"Displacement: N={displacement_north:.1f}m, E={displacement_east:.1f}m")
         logger.debug(f"Target coordinates: {target_lat:.6f}, {target_lon:.6f}")
+        
+        # Calculate final camera azimuth and elevation for metadata
+        camera_azimuth = math.degrees(math.atan2(world_east, world_north)) % 360
+        camera_elevation = math.degrees(math.asin(-world_up / math.sqrt(world_east**2 + world_north**2 + world_up**2)))
         
         # Determine which method was used for gimbal angles
         if has_absolute:
@@ -910,13 +947,13 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
             'estimated_ground_distance_m': horizontal_distance,
             'camera_azimuth_deg': camera_azimuth,
             'camera_elevation_deg': camera_elevation,
-            'calculation_method': 'photogrammetry',
+            'calculation_method': 'photogrammetry_3d_ray',
             'gimbal_method': gimbal_method,
             'has_camera_specs': bool(sensor_width_mm and sensor_height_mm and focal_length_mm)
         }
         
     except Exception as e:
-        logger.debug(f"Error calculating object coordinates: {e}", exc_info=True)
+        logger.error(f"Error calculating coordinates: {e}")
         return None
 
 
@@ -1397,17 +1434,28 @@ class BasePipeline:
             logger.info(f"  Average FPS: {self.frame_count / elapsed:.2f}")
         logger.info("=" * 70)
 
-    def _reconnect_stream(self, max_retries=3, retry_delay=2):
+    def _reconnect_stream(self, max_retries=5, retry_delay=3):
         """Attempt to reconnect to the SRT stream after an error."""
+        logger.info(f"🔄 Starting SRT stream reconnection process...")
+        
         for attempt in range(max_retries):
             try:
                 logger.info(f"Reconnection attempt {attempt + 1}/{max_retries}...")
+                
+                # Clean up existing connection
                 if self.container:
                     try:
                         self.container.close()
-                    except Exception:
-                        pass
-                time.sleep(retry_delay)
+                        logger.debug("Closed existing container")
+                    except Exception as e:
+                        logger.debug(f"Error closing container: {e}")
+                
+                # Wait before retry (exponential backoff)
+                wait_time = retry_delay * (2 ** attempt)
+                logger.info(f"Waiting {wait_time}s before reconnection attempt...")
+                time.sleep(wait_time)
+                
+                # Attempt to reconnect
                 self._open_srt_container()
                 
                 # Re-identify streams
@@ -1425,14 +1473,23 @@ class BasePipeline:
                 
                 self.video_stream = video_stream
                 self.data_stream = data_stream
-                logger.info("Successfully reconnected to SRT stream")
-                return True
+                
+                # Test the connection by trying to read a packet
+                logger.info("Testing reconnected stream...")
+                test_packets = list(self.container.demux([self.video_stream]))
+                if test_packets:
+                    logger.info("✅ Successfully reconnected to SRT stream")
+                    return True
+                else:
+                    logger.warning("No packets received from reconnected stream")
+                    continue
+                    
             except Exception as e:
                 logger.warning(f"Reconnection attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
+                    continue
         
-        logger.error("Failed to reconnect after all attempts")
+        logger.error("❌ All reconnection attempts failed")
         return False
 
     # Main loop shared logic
@@ -1632,10 +1689,11 @@ class BasePipeline:
                     # If we exit the demux loop normally, break the outer loop
                     break
                     
-                except av.error.OSError as av_err:
-                    # Handle SRT stream errors (e.g., decoding errors, I/O errors)
+                except (av.error.OSError, av.error.TimeoutError) as av_err:
+                    # Handle SRT stream errors (e.g., decoding errors, I/O errors, timeouts)
                     consecutive_errors += 1
-                    logger.warning(f"SRT stream error (attempt {consecutive_errors}/{max_consecutive_errors}): {av_err}")
+                    error_type = "timeout" if isinstance(av_err, av.error.TimeoutError) else "stream"
+                    logger.warning(f"SRT {error_type} error (attempt {consecutive_errors}/{max_consecutive_errors}): {av_err}")
                     
                     if consecutive_errors >= max_consecutive_errors:
                         logger.error("Too many consecutive errors, attempting reconnection")
@@ -1646,8 +1704,9 @@ class BasePipeline:
                         consecutive_errors = 0
                         seen_keyframe = False
                     else:
-                        # Wait a bit before continuing
-                        time.sleep(0.5)
+                        # Wait a bit before continuing, longer for timeout errors
+                        wait_time = 2.0 if isinstance(av_err, av.error.TimeoutError) else 0.5
+                        time.sleep(wait_time)
                         continue
 
         except KeyboardInterrupt:
