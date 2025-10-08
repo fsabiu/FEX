@@ -55,6 +55,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+import math
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -310,8 +311,15 @@ class TAKCoTSender:
         
         # Rate limiting: Track last send time per track_id
         self.last_send_time = {}  # {track_id: timestamp}
-        self.update_interval = 2.0  # Send updates every 2 seconds per track
+        self.update_interval = 3.0  # Send updates every 3 seconds per track
         self.rate_limit_lock = threading.Lock()
+        
+        # Aggregation settings
+        self.max_detections_per_batch = 5  # Maximum detections to send per batch
+        self.batch_window_seconds = 3.0  # Time window for batching detections
+        self.pending_detections = []  # Queue for pending detections
+        self.last_batch_send_time = 0  # Last time we sent a batch
+        self.batch_lock = threading.Lock()
         
         if self.enabled:
             self._setup_ssl_context()
@@ -419,6 +427,13 @@ class TAKCoTSender:
     
     def disconnect(self):
         """Close connection to TAK server and stop sender thread."""
+        # Send any remaining pending detections before disconnecting
+        with self.batch_lock:
+            if self.pending_detections:
+                logger.info(f"📡 Sending {len(self.pending_detections)} remaining detections before disconnect")
+                self._send_detection_batch(self.pending_detections)
+                self.pending_detections = []
+        
         self.stop_event.set()
         if self.sender_thread and self.sender_thread.is_alive():
             self.sender_thread.join(timeout=2.0)
@@ -539,8 +554,8 @@ class TAKCoTSender:
     
     def send_detection(self, detection, frame_num=0):
         """
-        Send a detection to TAK server with rate limiting per track_id.
-        Only sends updates if enough time has passed since last update.
+        Send a detection to TAK server with aggregation and throttling.
+        Aggregates detections over 3-second windows and sends maximum 5 per batch.
         
         Args:
             detection: Detection dictionary
@@ -556,55 +571,112 @@ class TAKCoTSender:
         if not self.ready:
             return False
 
-        if len(detection) > 10:
-            # keep 10% of the detections
-            detection = detection[:int(len(detection) * 0.1)]
+        current_time = time.time()
         
-        # Rate limiting: Check if we should send this track_id
-        track_id = detection.get('track_id')
-        if track_id is not None:
-            current_time = time.time()
-            with self.rate_limit_lock:
-                last_time = self.last_send_time.get(track_id, 0)
-                time_since_last = current_time - last_time
-                
-                # Skip if we sent this track_id too recently
-                if time_since_last < self.update_interval:
-                    return False  # Rate limited, skip silently
-                
-                # Update last send time
-                self.last_send_time[track_id] = current_time
-                
-                # Clean up old track_ids (older than 60 seconds)
-                # This prevents memory leak from stale tracks
-                if len(self.last_send_time) > 1000:
-                    cutoff_time = current_time - 60.0
-                    self.last_send_time = {
-                        tid: t for tid, t in self.last_send_time.items() 
-                        if t > cutoff_time
-                    }
-        
-        try:
-            # Build CoT message
-            cot_message = self.build_cot_message(detection, frame_num)
-            if not cot_message:
-                return False
+        # Add detection to pending queue with timestamp
+        with self.batch_lock:
+            self.pending_detections.append({
+                'detection': detection,
+                'frame_num': frame_num,
+                'timestamp': current_time
+            })
             
-            # Queue message for async sending (non-blocking)
-            try:
-                self.message_queue.put_nowait(cot_message)
-                # Temporary debug logging to verify sending
+            # Check if we should send a batch
+            should_send_batch = (
+                # Time-based: 3 seconds have passed since last batch
+                (current_time - self.last_batch_send_time) >= self.batch_window_seconds or
+                # Count-based: we have reached the maximum number of detections
+                len(self.pending_detections) >= self.max_detections_per_batch
+            )
+            
+            if should_send_batch:
+                # Select up to max_detections_per_batch detections
+                detections_to_send = self.pending_detections[:self.max_detections_per_batch]
+                
+                # Remove sent detections from pending queue
+                self.pending_detections = self.pending_detections[self.max_detections_per_batch:]
+                
+                # Update last batch send time
+                self.last_batch_send_time = current_time
+                
+                # Send the batch
+                return self._send_detection_batch(detections_to_send)
+            else:
+                # Just queued, not sent yet
                 return True
-            except queue.Full:
-                self.messages_dropped += 1
-                # Only log queue full occasionally to avoid log spam
-                if self.messages_dropped % 100 == 1:
-                    logger.warning(f"⚠️ TAK queue full, {self.messages_dropped} messages dropped so far")
-                return False
+    
+    def _send_detection_batch(self, detection_batch):
+        """
+        Send a batch of detections to TAK server.
+        
+        Args:
+            detection_batch: List of detection dictionaries with timestamps
+            
+        Returns:
+            bool: True if all messages queued successfully, False otherwise
+        """
+        try:
+            success_count = 0
+            
+            for item in detection_batch:
+                detection = item['detection']
+                frame_num = item['frame_num']
+                
+                # Rate limiting: Check if we should send this track_id
+                track_id = detection.get('track_id')
+                if track_id is not None:
+                    with self.rate_limit_lock:
+                        last_time = self.last_send_time.get(track_id, 0)
+                        time_since_last = time.time() - last_time
+                        
+                        # Skip if we sent this track_id too recently
+                        if time_since_last < self.update_interval:
+                            continue  # Skip this detection
+                        
+                        # Update last send time
+                        self.last_send_time[track_id] = time.time()
+                        
+                        # Clean up old track_ids (older than 60 seconds)
+                        if len(self.last_send_time) > 1000:
+                            cutoff_time = time.time() - 60.0
+                            self.last_send_time = {
+                                tid: t for tid, t in self.last_send_time.items() 
+                                if t > cutoff_time
+                            }
+                
+                # Build and queue CoT message
+                cot_message = self.build_cot_message(detection, frame_num)
+                if cot_message:
+                    try:
+                        self.message_queue.put_nowait(cot_message)
+                        success_count += 1
+                    except queue.Full:
+                        self.messages_dropped += 1
+                        # Only log queue full occasionally to avoid log spam
+                        if self.messages_dropped % 100 == 1:
+                            logger.warning(f"⚠️ TAK queue full, {self.messages_dropped} messages dropped so far")
+            
+            # Log batch statistics
+            if success_count > 0:
+                logger.info(f"📡 TAK batch sent: {success_count}/{len(detection_batch)} detections")
+            
+            return success_count > 0
                     
-        except Exception:
-            # Error building or queueing message, silently fail for performance
+        except Exception as e:
+            logger.debug(f"Error sending TAK batch: {e}")
             return False
+    
+    def get_batch_stats(self):
+        """Get statistics about current batching state."""
+        with self.batch_lock:
+            return {
+                'pending_detections': len(self.pending_detections),
+                'max_detections_per_batch': self.max_detections_per_batch,
+                'batch_window_seconds': self.batch_window_seconds,
+                'time_since_last_batch': time.time() - self.last_batch_send_time if self.last_batch_send_time > 0 else 0,
+                'messages_sent': self.messages_sent,
+                'messages_dropped': self.messages_dropped
+            }
 
 
 def resolve_device(device_value: str) -> str:
@@ -734,10 +806,18 @@ def extract_detections(results):
             detections.append(detection)
     return detections
 
+
+
 def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
     """
     Calculate geographic coordinates (lat/lon) for a detected object using photogrammetry.
     
+    This function transforms a pixel location into a 3D ray in the camera's reference
+    frame, then rotates that ray into the world reference frame using gimbal and
+    platform orientation. Finally, it calculates the intersection of this ray with
+    the ground plane (assumed at sea level, altitude=0) to estimate the object's
+    geographic coordinates.
+
     Args:
         bbox: Bounding box [x1, y1, x2, y2] in pixels
         klv_data: Telemetry data containing platform and camera information
@@ -747,11 +827,8 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
     Returns:
         dict: Geographic coordinates and metadata, or None if calculation fails
     """
-    import math
-    import numpy as np
-    
     try:
-        # Extract required fields from KLV data
+        # 1. --- Extract required fields from KLV data ---
         required_fields = ['latitude', 'longitude', 'altitude']
         missing_fields = [f for f in required_fields if f not in klv_data or klv_data[f] is None]
         
@@ -762,8 +839,8 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
         # Platform position
         platform_lat = klv_data['latitude']  # degrees
         platform_lon = klv_data['longitude']  # degrees
-        platform_alt = klv_data['altitude']  # meters
-        
+        platform_alt = klv_data['altitude']  # meters above sea level
+
         # Platform orientation (default to 0 if missing)
         platform_roll = klv_data.get('roll', 0.0)  # degrees
         platform_pitch = klv_data.get('pitch', 0.0)  # degrees
@@ -774,172 +851,146 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
         has_relative = 'gimbal_yaw_rel' in klv_data or 'gimbal_pitch_rel' in klv_data
         
         if has_absolute:
-            gimbal_yaw_world = klv_data.get('gimbal_yaw_abs', 0.0)  # degrees (0=North, 90=East)
-            gimbal_pitch_world = klv_data.get('gimbal_pitch_abs', -90.0)  # degrees (negative = down from horizon)
-            gimbal_roll_world = klv_data.get('gimbal_roll_abs', 0.0)  # degrees
+            gimbal_yaw_world = klv_data.get('gimbal_yaw_abs', platform_heading)
+            gimbal_pitch_world = klv_data.get('gimbal_pitch_abs', -90.0)
+            gimbal_roll_world = klv_data.get('gimbal_roll_abs', 0.0)
+            gimbal_method = 'absolute_world_frame'
             logger.debug("Using gimbal ABSOLUTE angles (world frame)")
         elif has_relative:
-            gimbal_roll_rel = klv_data.get('gimbal_roll_rel', 0.0)  # degrees
-            gimbal_pitch_rel = klv_data.get('gimbal_pitch_rel', -90.0)  # degrees
-            gimbal_yaw_rel = klv_data.get('gimbal_yaw_rel', 0.0)  # degrees
+            gimbal_roll_rel = klv_data.get('gimbal_roll_rel', 0.0)
+            gimbal_pitch_rel = klv_data.get('gimbal_pitch_rel', 0.0)
+            gimbal_yaw_rel = klv_data.get('gimbal_yaw_rel', 0.0)
             
-            # SIMPLIFIED transformation (assumes small platform roll/pitch)
-            gimbal_yaw_world = platform_heading + gimbal_yaw_rel
-            gimbal_pitch_world = gimbal_pitch_rel + platform_pitch
-            gimbal_roll_world = gimbal_roll_rel + platform_roll
-            
-            logger.debug(f"Using gimbal RELATIVE angles: converted to world frame (APPROXIMATE)")
-            logger.debug(f"  Platform: heading={platform_heading:.1f}°, pitch={platform_pitch:.1f}°, roll={platform_roll:.1f}°")
-            logger.debug(f"  Gimbal rel: yaw={gimbal_yaw_rel:.1f}°, pitch={gimbal_pitch_rel:.1f}°, roll={gimbal_roll_rel:.1f}°")
+            # APPROXIMATE transformation: Assumes small platform roll/pitch.
+            # A full solution requires composing rotation matrices.
+            gimbal_yaw_world = (platform_heading + gimbal_yaw_rel) % 360
+            gimbal_pitch_world = platform_pitch + gimbal_pitch_rel
+            gimbal_roll_world = platform_roll + gimbal_roll_rel
+            gimbal_method = 'relative_approx_transform'
+            logger.debug("Using gimbal RELATIVE angles (approximate world frame conversion)")
         else:
             gimbal_yaw_world = platform_heading
-            gimbal_pitch_world = -90.0  # straight down
+            gimbal_pitch_world = -90.0  # Straight down (nadir)
             gimbal_roll_world = 0.0
+            gimbal_method = 'fallback_nadir'
             logger.debug("No gimbal data, assuming nadir (straight down)")
+
+        # 2. --- Calculate pixel's angular offset from camera center ---
+        bbox_center_x = (bbox[0] + bbox[2]) / 2.0
+        bbox_center_y = (bbox[1] + bbox[3]) / 2.0
         
-        # Camera specifications
-        sensor_width_mm = klv_data.get('sensor_width_mm')
-        sensor_height_mm = klv_data.get('sensor_height_mm')
-        focal_length_mm = klv_data.get('focal_length_mm')
+        pixel_offset_x = bbox_center_x - frame_width / 2.0
+        pixel_offset_y = bbox_center_y - frame_height / 2.0
         
-        # Calculate center of bounding box
-        x1, y1, x2, y2 = bbox
-        bbox_center_x = (x1 + x2) / 2.0
-        bbox_center_y = (y1 + y2) / 2.0
-        
-        # Calculate pixel offset from image center (normalized)
-        pixel_offset_x = (bbox_center_x - frame_width / 2.0)
-        pixel_offset_y = (bbox_center_y - frame_height / 2.0)
-        
-        # Calculate angular offset from camera center
-        if sensor_width_mm and sensor_height_mm and focal_length_mm:
-            angle_per_pixel_x = math.atan(sensor_width_mm / (2.0 * focal_length_mm)) * 2.0 / frame_width
-            angle_per_pixel_y = math.atan(sensor_height_mm / (2.0 * focal_length_mm)) * 2.0 / frame_height
+        has_camera_specs = False
+        if klv_data.get('focal_length_mm') and klv_data.get('sensor_width_mm'):
+            focal_length = klv_data['focal_length_mm']
+            sensor_width = klv_data['sensor_width_mm']
+            sensor_height = klv_data.get('sensor_height_mm', sensor_width * (frame_height / frame_width))
             
-            alpha_x = pixel_offset_x * angle_per_pixel_x  # horizontal angle (radians)
-            alpha_y = pixel_offset_y * angle_per_pixel_y  # vertical angle (radians)
-            
-            logger.debug(f"Camera model: focal={focal_length_mm}mm, sensor={sensor_width_mm}x{sensor_height_mm}mm")
-            logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
-        elif 'sensor_h_fov' in klv_data and 'sensor_v_fov' in klv_data:
+            # Angle = atan(pixel_distance_on_sensor / focal_length)
+            alpha_x = math.atan2(pixel_offset_x * (sensor_width / frame_width), focal_length)
+            alpha_y = math.atan2(pixel_offset_y * (sensor_height / frame_height), focal_length)
+            has_camera_specs = True
+            logger.debug(f"Camera model: focal={focal_length}mm, sensor={sensor_width}x{sensor_height}mm")
+        elif 'sensor_h_fov' in klv_data:
             h_fov_rad = math.radians(klv_data['sensor_h_fov'])
-            v_fov_rad = math.radians(klv_data['sensor_v_fov'])
+            v_fov_rad = math.radians(klv_data.get('sensor_v_fov', klv_data['sensor_h_fov'] * (frame_height / frame_width)))
             
-            alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
-            alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
-            
-            logger.debug(f"FOV model: H={klv_data['sensor_h_fov']:.1f}°, V={klv_data['sensor_v_fov']:.1f}°")
-            logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
+            alpha_x = (pixel_offset_x / (frame_width / 2.0)) * math.tan(h_fov_rad / 2.0)
+            alpha_y = (pixel_offset_y / (frame_height / 2.0)) * math.tan(v_fov_rad / 2.0)
+            alpha_x = math.atan(alpha_x)
+            alpha_y = math.atan(alpha_y)
+            logger.debug(f"FOV model: H={klv_data['sensor_h_fov']:.1f}°, V={klv_data.get('sensor_v_fov', 0):.1f}°")
         else:
+            # Fallback to a default FOV if no camera info is available
             h_fov_rad = math.radians(60.0)
             v_fov_rad = h_fov_rad * (frame_height / frame_width)
-            alpha_x = (pixel_offset_x / frame_width) * h_fov_rad
-            alpha_y = (pixel_offset_y / frame_height) * v_fov_rad
-            logger.debug(f"Using fallback FOV: 60° horizontal")
+            alpha_x = (pixel_offset_x / (frame_width / 2.0)) * math.tan(h_fov_rad / 2.0)
+            alpha_y = (pixel_offset_y / (frame_height / 2.0)) * math.tan(v_fov_rad / 2.0)
+            alpha_x = math.atan(alpha_x)
+            alpha_y = math.atan(alpha_y)
+            logger.debug("Using fallback FOV: 60° horizontal")
         
-        # ===== KEY FIX: Proper 3D ray direction calculation =====
-        # Convert gimbal pointing to a 3D unit vector in camera coordinates
-        # Camera coordinates: x=right, y=down, z=forward (optical axis)
+        logger.debug(f"Angular offset: α_x={math.degrees(alpha_x):.3f}°, α_y={math.degrees(alpha_y):.3f}°")
+
+        # 3. --- Define the 3D ray in the camera's coordinate system ---
+        # Camera coordinates: X=right, Y=down, Z=forward (optical axis)
+        cam_ray = np.array([
+            math.tan(alpha_x),
+            math.tan(alpha_y),
+            1.0
+        ])
+        # Normalize the ray vector
+        cam_ray /= np.linalg.norm(cam_ray)
+
+        # 4. --- Create the rotation matrix to transform from Camera to World frame ---
+        # Convert world-frame gimbal angles to radians
+        yaw_rad = math.radians(gimbal_yaw_world)    # Azimuth from North
+        pitch_rad = math.radians(gimbal_pitch_world) # Elevation from horizon (-90 is down)
+        roll_rad = math.radians(gimbal_roll_world)   # Roll
+
+        # First, a matrix to convert from Camera frame (X-right, Y-down, Z-fwd)
+        # to a standard Body frame (X-fwd, Y-right, Z-down)
+        R_body_from_cam = np.array([
+            [0, 0, 1],  # Body X (fwd) = Cam Z
+            [1, 0, 0],  # Body Y (right) = Cam X
+            [0, 1, 0],  # Body Z (down) = Cam Y
+        ])
+
+        # Second, the main rotation matrix from Body frame to World (NED - North, East, Down)
+        # This is a standard ZYX Euler angle rotation sequence (Yaw, Pitch, Roll)
+        cy, sy = math.cos(yaw_rad), math.sin(yaw_rad)
+        cp, sp = math.cos(pitch_rad), math.sin(pitch_rad)
+        cr, sr = math.cos(roll_rad), math.sin(roll_rad)
+
+        R_ned_from_body = np.array([
+            [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
+            [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
+            [-sp,   cp*sr,            cp*cr]
+        ])
+
+        # Combine rotations: first to body frame, then to world frame
+        world_ray = R_ned_from_body @ R_body_from_cam @ cam_ray
         
-        # Start with camera pointing straight ahead (z-axis)
-        # Then apply pixel offsets in camera frame
-        # alpha_x: horizontal offset (rotation around y-axis, affects x and z)
-        # alpha_y: vertical offset (rotation around x-axis, affects y and z)
-        
-        # Camera-frame ray direction (normalized)
-        cam_x = math.tan(alpha_x)  # right
-        cam_y = math.tan(alpha_y)  # down
-        cam_z = 1.0  # forward
-        
-        # Normalize
-        mag = math.sqrt(cam_x**2 + cam_y**2 + cam_z**2)
-        cam_x /= mag
-        cam_y /= mag
-        cam_z /= mag
-        
-        # Convert gimbal angles to radians
-        yaw_rad = math.radians(gimbal_yaw_world)    # azimuth from north
-        pitch_rad = math.radians(gimbal_pitch_world) # elevation from horizon (negative = down)
-        roll_rad = math.radians(gimbal_roll_world)   # camera roll
-        
-        # Rotation matrices to transform from camera frame to world frame
-        # Apply: Roll -> Pitch -> Yaw (standard aerospace sequence)
-        
-        # Yaw rotation (around vertical Z-axis in world frame)
-        cos_yaw = math.cos(yaw_rad)
-        sin_yaw = math.sin(yaw_rad)
-        
-        # Pitch rotation (around lateral axis)
-        cos_pitch = math.cos(pitch_rad)
-        sin_pitch = math.sin(pitch_rad)
-        
-        # Roll rotation (around longitudinal axis)
-        cos_roll = math.cos(roll_rad)
-        sin_roll = math.sin(roll_rad)
-        
-        # Combined rotation from camera to world coordinates
-        # World frame: x=East, y=North, z=Up
-        # Camera frame: x=right, y=down, z=forward
-        
-        # Transform camera ray to world frame (simplified for typical gimbal setup)
-        # This assumes camera z-axis aligns with gimbal pointing direction
-        
-        # First apply roll
-        x1 = cam_x * cos_roll - cam_y * sin_roll
-        y1 = cam_x * sin_roll + cam_y * cos_roll
-        z1 = cam_z
-        
-        # Then pitch (note: camera y is down, so we need to handle sign correctly)
-        x2 = x1
-        y2 = -z1 * sin_pitch + y1 * cos_pitch  # Note: y is down in camera frame
-        z2 = z1 * cos_pitch + y1 * sin_pitch
-        
-        # Finally yaw (rotate in horizontal plane)
-        world_east = x2 * cos_yaw - y2 * sin_yaw
-        world_north = x2 * sin_yaw + y2 * cos_yaw
-        world_up = -z2  # Convert from camera down to world up
-        
-        logger.debug(f"Ray direction (world): E={world_east:.3f}, N={world_north:.3f}, U={world_up:.3f}")
-        
-        # Check if ray points downward
-        if world_up >= 0:
-            logger.debug(f"Camera pointing at or above horizon (up={world_up:.3f}), cannot determine ground intersection")
+        world_north, world_east, world_down = world_ray
+        logger.debug(f"Ray direction (NED): N={world_north:.3f}, E={world_east:.3f}, D={world_down:.3f}")
+
+        # 5. --- Calculate ground intersection ---
+        # Check if ray points downward. If world_down is zero or negative, it's parallel to or points away from the ground.
+        if world_down <= 1e-6: # Use a small epsilon to avoid division by zero
+            logger.warning(f"Camera pointing at or above horizon (down vector={world_down:.4f}), cannot determine ground intersection.")
             return None
-        
-        # Calculate intersection with ground plane (altitude = 0)
-        # Ray equation: P = P0 + t * direction
-        # Ground: z = 0
-        # Solve for t: platform_alt + t * world_up = 0
-        t = -platform_alt / world_up
+            
+        # Ray equation: P = P0 + t * direction. We want the Z component (altitude) to be 0.
+        # platform_alt - t * world_down = 0  (Since platform_alt is positive up, and world_down is positive down)
+        # Note: This assumes a flat earth at sea level (altitude=0).
+        t = platform_alt / world_down
         
         # Horizontal displacement
-        displacement_east = t * world_east
         displacement_north = t * world_north
-        horizontal_distance = math.sqrt(displacement_east**2 + displacement_north**2)
+        displacement_east = t * world_east
+        horizontal_distance = math.sqrt(displacement_north**2 + displacement_east**2)
         
         logger.debug(f"Altitude: {platform_alt:.1f}m, H-dist: {horizontal_distance:.1f}m")
         logger.debug(f"Displacement: N={displacement_north:.1f}m, E={displacement_east:.1f}m")
+
+        # 6. --- Convert displacement to new Lat/Lon coordinates ---
+        # Earth radius in meters
+        R_EARTH = 6378137.0
         
-        # Convert to lat/lon
-        meters_per_degree_lat = 111320.0
-        meters_per_degree_lon = 111320.0 * math.cos(math.radians(platform_lat))
+        # Convert displacement to angular distance
+        d_lat = displacement_north / R_EARTH
+        d_lon = displacement_east / (R_EARTH * math.cos(math.radians(platform_lat)))
         
-        target_lat = platform_lat + (displacement_north / meters_per_degree_lat)
-        target_lon = platform_lon + (displacement_east / meters_per_degree_lon)
+        target_lat = platform_lat + math.degrees(d_lat)
+        target_lon = platform_lon + math.degrees(d_lon)
         
-        logger.debug(f"Target coordinates: {target_lat:.6f}, {target_lon:.6f}")
+        #logger.info(f"Target coordinates: {target_lat:.6f}, {target_lon:.6f}")
         
-        # Calculate final camera azimuth and elevation for metadata
+        # 7. --- Final metadata ---
         camera_azimuth = math.degrees(math.atan2(world_east, world_north)) % 360
-        camera_elevation = math.degrees(math.asin(-world_up / math.sqrt(world_east**2 + world_north**2 + world_up**2)))
-        
-        # Determine which method was used for gimbal angles
-        if has_absolute:
-            gimbal_method = 'absolute_world_frame'
-        elif has_relative:
-            gimbal_method = 'relative_approx_transform'
-        else:
-            gimbal_method = 'fallback_nadir'
+        camera_elevation = math.degrees(math.asin(-world_down)) # Elevation is angle from horizon, up is positive
         
         return {
             'latitude': target_lat,
@@ -947,13 +998,13 @@ def calculate_object_coordinates(bbox, klv_data, frame_width, frame_height):
             'estimated_ground_distance_m': horizontal_distance,
             'camera_azimuth_deg': camera_azimuth,
             'camera_elevation_deg': camera_elevation,
-            'calculation_method': 'photogrammetry_3d_ray',
+            'calculation_method': 'photogrammetry_3d_ray_matrix',
             'gimbal_method': gimbal_method,
-            'has_camera_specs': bool(sensor_width_mm and sensor_height_mm and focal_length_mm)
+            'has_camera_specs': has_camera_specs
         }
         
     except Exception as e:
-        logger.error(f"Error calculating coordinates: {e}")
+        logger.error(f"Error calculating coordinates: {e}", exc_info=True)
         return None
 
 
