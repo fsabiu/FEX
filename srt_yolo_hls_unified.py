@@ -304,6 +304,7 @@ class TAKCoTSender:
         # Async queue for non-blocking sends
         self.message_queue = queue.Queue(maxsize=1000)
         self.sender_thread = None
+        self.batch_timer_thread = None
         self.stop_event = threading.Event()
         self.messages_sent = 0
         self.messages_dropped = 0
@@ -316,7 +317,7 @@ class TAKCoTSender:
         
         # Aggregation settings
         self.max_detections_per_batch = 5  # Maximum detections to send per batch
-        self.batch_window_seconds = 3.0  # Time window for batching detections
+        self.batch_window_seconds = 5.0  # Time window for batching detections (send every 5 seconds)
         self.pending_detections = []  # Queue for pending detections
         self.last_batch_send_time = 0  # Last time we sent a batch
         self.batch_lock = threading.Lock()
@@ -324,6 +325,7 @@ class TAKCoTSender:
         if self.enabled:
             self._setup_ssl_context()
             self._start_sender_thread()
+            self._start_batch_timer_thread()
     
     def _setup_ssl_context(self):
         """Setup SSL context with certificates."""
@@ -386,6 +388,12 @@ class TAKCoTSender:
         self.sender_thread.start()
         logger.info("✅ TAK sender thread started")
     
+    def _start_batch_timer_thread(self):
+        """Start background thread for periodic batch sending."""
+        self.batch_timer_thread = threading.Thread(target=self._batch_timer_worker, daemon=True)
+        self.batch_timer_thread.start()
+        logger.info("✅ TAK batch timer thread started")
+    
     def _sender_worker(self):
         """Background worker thread that processes the message queue."""
         # Wait for initial connection before marking as ready
@@ -425,6 +433,46 @@ class TAKCoTSender:
                 logger.error(f"Error in TAK sender thread: {e}")
                 time.sleep(1)  # Avoid tight loop on errors
     
+    def _batch_timer_worker(self):
+        """Background worker thread that sends batches every 5 seconds."""
+        while not self.stop_event.is_set():
+            try:
+                # Wait for 5 seconds
+                if self.stop_event.wait(self.batch_window_seconds):
+                    break  # Stop event was set
+                
+                # Check if we have pending detections and it's time to send
+                with self.batch_lock:
+                    current_time = time.time()
+                    time_since_last = current_time - self.last_batch_send_time
+                    
+                    if (len(self.pending_detections) > 0 and 
+                        time_since_last >= self.batch_window_seconds):
+                        
+                        total_pending = len(self.pending_detections)
+                        
+                        # Select up to max_detections_per_batch detections (drop excess)
+                        detections_to_send = self.pending_detections[:self.max_detections_per_batch]
+                        
+                        # Remove sent detections from pending queue
+                        self.pending_detections = self.pending_detections[self.max_detections_per_batch:]
+                        
+                        # Log if we dropped any detections
+                        dropped_count = total_pending - len(detections_to_send)
+                        if dropped_count > 0:
+                            logger.info(f"📡 TAK batch: sending {len(detections_to_send)} detections, dropping {dropped_count} excess")
+                        
+                        # Update last batch send time
+                        self.last_batch_send_time = current_time
+                        
+                        # Send the batch
+                        if detections_to_send:
+                            self._send_detection_batch(detections_to_send)
+                            
+            except Exception as e:
+                logger.error(f"Error in TAK batch timer thread: {e}")
+                time.sleep(1)  # Avoid tight loop on errors
+    
     def disconnect(self):
         """Close connection to TAK server and stop sender thread."""
         # Send any remaining pending detections before disconnecting
@@ -437,6 +485,8 @@ class TAKCoTSender:
         self.stop_event.set()
         if self.sender_thread and self.sender_thread.is_alive():
             self.sender_thread.join(timeout=2.0)
+        if self.batch_timer_thread and self.batch_timer_thread.is_alive():
+            self.batch_timer_thread.join(timeout=2.0)
         
         with self.lock:
             try:
@@ -554,8 +604,8 @@ class TAKCoTSender:
     
     def send_detection(self, detection, frame_num=0):
         """
-        Send a detection to TAK server with aggregation and throttling.
-        Aggregates detections over 3-second windows and sends maximum 5 per batch.
+        Queue a detection for TAK server sending.
+        Detections are aggregated and sent every 5 seconds (max 5 per batch).
         
         Args:
             detection: Detection dictionary
@@ -581,29 +631,14 @@ class TAKCoTSender:
                 'timestamp': current_time
             })
             
-            # Check if we should send a batch
-            should_send_batch = (
-                # Time-based: 3 seconds have passed since last batch
-                (current_time - self.last_batch_send_time) >= self.batch_window_seconds or
-                # Count-based: we have reached the maximum number of detections
-                len(self.pending_detections) >= self.max_detections_per_batch
-            )
+            # Limit queue size to prevent memory issues - keep only recent detections
+            if len(self.pending_detections) > 20:  # Keep only last 20 detections (4 batches worth)
+                dropped_old = len(self.pending_detections) - 20
+                self.pending_detections = self.pending_detections[-20:]
+                logger.debug(f"📡 TAK queue full: dropped {dropped_old} old detections, keeping latest 20")
             
-            if should_send_batch:
-                # Select up to max_detections_per_batch detections
-                detections_to_send = self.pending_detections[:self.max_detections_per_batch]
-                
-                # Remove sent detections from pending queue
-                self.pending_detections = self.pending_detections[self.max_detections_per_batch:]
-                
-                # Update last batch send time
-                self.last_batch_send_time = current_time
-                
-                # Send the batch
-                return self._send_detection_batch(detections_to_send)
-            else:
-                # Just queued, not sent yet
-                return True
+            # Just queued, timer thread will handle sending
+            return True
     
     def _send_detection_batch(self, detection_batch):
         """
@@ -659,6 +694,8 @@ class TAKCoTSender:
             # Log batch statistics
             if success_count > 0:
                 logger.info(f"📡 TAK batch sent: {success_count}/{len(detection_batch)} detections")
+            elif len(detection_batch) > 0:
+                logger.debug(f"📡 TAK batch: all {len(detection_batch)} detections were rate-limited")
             
             return success_count > 0
                     
